@@ -18,7 +18,7 @@ from typing import Optional, List, Dict
 logger = logging.getLogger(__name__)
 
 WORKER_BASE = "https://new-frosty.toonsraja-df3.workers.dev/"
-DORABASH_WORKER_URL = "https://new-frosty.nsr-developer78.workers.dev/"
+DORABASH_WORKER_URL = "https://new-frosty.toonsraja-df3.workers.dev/"
 USE_WATCHANIMEWORLD = False
 SERVER_UG_SOURCE = "toonstream"
 ANIMEDEKHO_URL = "https://animedekho.tv"
