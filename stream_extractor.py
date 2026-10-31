@@ -18,7 +18,7 @@ from typing import Optional, List, Dict
 logger = logging.getLogger(__name__)
 
 WORKER_BASE = "https://new-frosty.toonsraja-df3.workers.dev/"
-DORABASH_WORKER_URL = "https://new-frosty.toonsraja-df3.workers.dev/"
+DORABASH_WORKER_URL = "https://new-frosty.nsr-developer78.workers.dev/"
 USE_WATCHANIMEWORLD = False
 SERVER_UG_SOURCE = "toonstream"
 ANIMEDEKHO_URL = "https://animedekho.tv"
@@ -3093,9 +3093,10 @@ def extract_blisseyhusband_stream(ep_url: str, worker_base: str = "") -> Optiona
     vm = re.search(r'videas\.fr/embed/(?:media/)?([0-9a-fA-F-]{36})', raw_url, re.I)
     if vm:
         videas_id = vm.group(1)
-        wb = (worker_base or WORKER_BASE).strip().rstrip('/') + '/'
+        # Use secondary worker (DORABASH_WORKER_URL) for extraction/embed serving
+        wb = (worker_base or DORABASH_WORKER_URL or WORKER_BASE).strip().rstrip('/') + '/'
         worker_embed = f"{wb}embed/{videas_id}/"
-        logger.info("BlisseyHusband Videas embed mapped to Worker: %s -> %s", raw_url, worker_embed)
+        logger.info("BlisseyHusband Videas embed mapped to Extractor Worker: %s -> %s", raw_url, worker_embed)
         return worker_embed
 
     return raw_url
