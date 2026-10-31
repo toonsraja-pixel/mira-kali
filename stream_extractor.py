@@ -3051,14 +3051,20 @@ def count_blisseyhusband_episodes(show_name: str, season: int = 1, direct_url: s
     ep_map = get_blisseyhusband_episode_map(url)
     return max(ep_map.keys()) if ep_map else 0
 
-def extract_blisseyhusband_stream(ep_url: str) -> Optional[str]:
-    """Extract iframe stream URL from a BlisseyHusband episode page."""
+def extract_blisseyhusband_stream(ep_url: str, worker_base: str = "") -> Optional[str]:
+    """
+    Extract iframe stream URL from a BlisseyHusband episode page.
+    If the stream is hosted on Videas (e.g. app.videas.fr/embed/UUID or /embed/media/UUID),
+    automatically routes it through the Cloudflare Worker player endpoint:
+      https://<worker-domain>/embed/<uuid>/
+    """
     if not ep_url:
         return None
     html_text = _blisseyhusband_get(ep_url.strip())
     if not html_text:
         return None
 
+    raw_url = None
     soup = BeautifulSoup(html_text, "html.parser")
     for iframe in soup.find_all("iframe"):
         src = (iframe.get("src") or iframe.get("data-src") or "").strip()
@@ -3068,15 +3074,31 @@ def extract_blisseyhusband_stream(ep_url: str) -> Optional[str]:
             continue
         if src.startswith("//"):
             src = "https:" + src
-        return src
+        raw_url = src
+        break
 
-    for v in soup.find_all(["video", "source"]):
-        src = (v.get("src") or v.get("data-src") or "").strip()
-        if src:
-            if src.startswith("//"):
-                src = "https:" + src
-            return src
-    return None
+    if not raw_url:
+        for v in soup.find_all(["video", "source"]):
+            src = (v.get("src") or v.get("data-src") or "").strip()
+            if src:
+                if src.startswith("//"):
+                    src = "https:" + src
+                raw_url = src
+                break
+
+    if not raw_url:
+        return None
+
+    # Check if raw_url is a Videas embed (standard on BlisseyHusband)
+    vm = re.search(r'videas\.fr/embed/(?:media/)?([0-9a-fA-F-]{36})', raw_url, re.I)
+    if vm:
+        videas_id = vm.group(1)
+        wb = (worker_base or WORKER_BASE).strip().rstrip('/') + '/'
+        worker_embed = f"{wb}embed/{videas_id}/"
+        logger.info("BlisseyHusband Videas embed mapped to Worker: %s -> %s", raw_url, worker_embed)
+        return worker_embed
+
+    return raw_url
 
 def extract_blisseyhusband_episode(
     show_name: str, season: int = 1, episode: int = 1, direct_url: str = ""
