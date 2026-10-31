@@ -2,9 +2,12 @@ name: Update Airing Posts
 
 on:
   schedule:
-    # Runs every day at 6:00 PM IST = 12:30 UTC
-    # Change this cron to whatever time you want: https://crontab.guru
-    - cron: '30 12 * * *'
+    # Runs 4 times during peak release window (6:00 PM to 12:00 AM IST):
+    # - 12:30 UTC = 06:00 PM IST
+    # - 14:30 UTC = 08:00 PM IST
+    # - 16:30 UTC = 10:00 PM IST
+    # - 18:30 UTC = 12:00 AM IST (Midnight)
+    - cron: '30 12,14,16,18 * * *'
   workflow_dispatch:  # also lets you trigger it manually from the GitHub UI
 
 jobs:
