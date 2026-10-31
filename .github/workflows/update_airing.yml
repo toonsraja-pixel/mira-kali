@@ -1,0 +1,43 @@
+name: Update Airing Posts
+
+on:
+  schedule:
+    # Runs every day at 6:00 PM IST = 12:30 UTC
+    # Change this cron to whatever time you want: https://crontab.guru
+    - cron: '30 12 * * *'
+  workflow_dispatch:  # also lets you trigger it manually from the GitHub UI
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install requests beautifulsoup4 rapidfuzz lxml
+
+      - name: Write empty settings.json (headless script will fill it from env)
+        run: echo '{}' > settings.json
+
+      - name: Run airing post updater
+        env:
+          WP_URL:              ${{ secrets.WP_URL }}
+          WP_USERNAME:         ${{ secrets.WP_USERNAME }}
+          WP_APP_PASSWORD:     ${{ secrets.WP_APP_PASSWORD }}
+          TMDB_API_KEY:        ${{ secrets.TMDB_API_KEY }}
+          TOONSTREAM_DOMAINS:  ${{ secrets.TOONSTREAM_DOMAINS }}
+          MULTIMOVIES_DOMAINS: ${{ secrets.MULTIMOVIES_DOMAINS }}
+          WORKER_BASE:         ${{ secrets.WORKER_BASE }}
+          ANIMEDEKHO_URL:      ${{ secrets.ANIMEDEKHO_URL }}
+        run: python run_airing_headless.py
