@@ -1,0 +1,41 @@
+# Never commit credentials
+settings.json
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Temp files
+*.tmp
+_tmp_upload_*.tmp
+
+# Local test/scratch
+pw_profile/
+log.txt
+*.log
+
+# Windows junk
+Thumbs.db
+Desktop.ini
+
+# Java/smali decompile artifacts
+*.java
+*.smali
+dex_out.txt
+methods_out.txt
+dora_strings.txt
+*.db
+
+# Local HTML/browser files
+*.html
+toonstream_flaresolverr_page.html
+
+# Zip files
+*.zip
+
+# Other large/local files
+blogspot_posts.json
+blogspot_cleaner_progress.json
+blogspot_update_report.txt
