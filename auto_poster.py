@@ -517,14 +517,20 @@ def check_and_update_airing_posts(
         # haven't indexed yet, or that AniList says exists but wasn't returned this run.
         #   1. max_ex + 1 : always check at least one ep beyond the post's current highest ep
         #      (catches episodes added to Toonstream between the last run and now)
-        #   2. expected_eps (AniList total) when the show is FINISHED or expected_eps is close
-        #      to what we already found (≤ avail_count + 3): safe to trust AniList's count.
-        _anilist_fin = (anilist_status or "").upper() in ("FINISHED", "COMPLETED")
+        #   2. expected_eps (AniList total) ONLY when expected_eps is close to what we found
+        #      (e.g. expected_eps <= avail_count + 3, like Black Torch where avail=9, exp=12).
+        #      CRITICAL: For absolute-numbered long-running shows (like Naruto Shippuden S18
+        #      where AniList reports total series eps = 500, but Season 18 only has eps ~373-393),
+        #      we must NEVER bump avail_count to 500, or it will scan non-existent eps up to 500!
         if expected_eps and expected_eps > 0:
-            _use_expected = _anilist_fin or (expected_eps <= avail_count + 3)
-            if _use_expected and expected_eps > avail_count:
+            if avail_count > 0 and expected_eps <= avail_count + 3:
+                if expected_eps > avail_count:
+                    avail_count = expected_eps
+            elif avail_count == 0 and expected_eps <= 26:
+                # Post is brand new and sources haven't indexed yet
                 avail_count = expected_eps
-        # Always look at least one beyond the post's current highest episode
+
+        # Look at most 1 episode beyond the post's current highest episode
         if max_ex > 0 and (max_ex + 1) > avail_count:
             avail_count = max_ex + 1
 
