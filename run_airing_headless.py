@@ -80,7 +80,7 @@ def main():
         log.info("  MultiMovies → %s", synced["multimovies"])
 
     api = WordPressAPI(
-        url=settings["wp_url"],
+        site_url=settings["wp_url"],
         username=settings["wp_username"],
         app_password=settings["wp_app_password"],
     )
