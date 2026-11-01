@@ -1057,8 +1057,10 @@ def search_animedekho_series(show_name: str) -> Optional[str]:
 
     _animedekho_verify_bypass()
 
-    clean_name = re.sub(r'\s*(season\s*\d+|s\d+)\s*$', '', show_name, flags=re.IGNORECASE).strip()
-    clean_name = re.sub(r'[:–—\-\|\!\?\.\'\"]', ' ', clean_name)
+    clean_name = re.sub(r'[\s\ufffd\u2013\u2014\-–—]+(Episode\s*\d+\s*Added!|All\s*Episodes\s*Added!).*$', '', show_name, flags=re.IGNORECASE)
+    clean_name = re.sub(r'\s*(season\s*\d+|s\d+)\s*$', '', clean_name, flags=re.IGNORECASE).strip()
+    clean_name = clean_name.replace('\ufffdm', "'m").replace('\ufffds', "'s").replace('Fianc\ufffd', 'Fiance')
+    clean_name = re.sub(r'[:–—\-\|\!\?\.\'\"\ufffd]', ' ', clean_name)
     clean_name = re.sub(r'\s+', ' ', clean_name).strip()
 
     from urllib.parse import quote
@@ -1303,13 +1305,33 @@ def extract_animedekho_all_streams(
         ep_url = ep_map.get(episode, "")
 
     if not ep_url:
-        clean_name = re.sub(r'\s*(season\s*\d+|s\d+)\s*$', '', show_name, flags=re.IGNORECASE).strip()
-        slug = re.sub(r'[^a-z0-9]+', '-', clean_name.lower()).strip('-')
-        for s in [slug, f"{slug}-hindi"]:
+        c_name = re.sub(r'[\s\ufffd\u2013\u2014\-–—]+(Episode\s*\d+\s*Added!|All\s*Episodes\s*Added!).*$', '', show_name, flags=re.IGNORECASE)
+        c_name = re.sub(r'\s*(season\s*\d+|s\d+)\s*$', '', c_name, flags=re.IGNORECASE).strip()
+        c_name = c_name.replace('\ufffdm', "'m").replace('\ufffds', "'s").replace('Fianc\ufffd', 'Fiance')
+        c_name = re.sub(r'&#8211;|–|—', '-', c_name)
+        c_name = re.sub(r'&#8217;|’|\ufffd', "'", c_name)
+        slug = re.sub(r'[^a-z0-9]+', '-', c_name.lower()).strip('-')
+
+        candidates = [slug, f"{slug}-hindi"]
+        if direct_url and ("/series-hindi/" in direct_url or "/series/" in direct_url):
+            dir_slug = direct_url.strip("/").split("/")[-1]
+            if dir_slug not in candidates:
+                candidates.insert(0, dir_slug)
+        if "bleach" in slug and "bleach" not in candidates:
+            candidates.append("bleach")
+        if "lord-of-mysteries" in slug and "lord-of-mysteries" not in candidates:
+            candidates.append("lord-of-mysteries")
+        if "fiance" in slug or "fianc" in slug:
+            candidates.append("even-though-im-a-super-timid-noble-girl-i-accepted-the-bet-from-my-cunning-fiance")
+            candidates.append("even-though-im-a-super-timid-noble-girl-i-accepted-the-bet-from-my-cunning-fianc")
+        if "dating-sim" in slug:
+            candidates.insert(0, "trapped-in-a-dating-sim-the-world-of-otome-games-is-tough-for-mobs")
+
+        for s in candidates:
             candidate = f"{base}/epi/{s}-{season}x{episode}/"
             try:
                 r_test = _animedekho_session.get(candidate, timeout=10)
-                if r_test.status_code == 200 and "404" not in r_test.text and len(r_test.text) > 1000:
+                if r_test.status_code == 200 and len(r_test.text) > 1000 and "<title>404" not in r_test.text:
                     ep_url = candidate
                     break
             except Exception:
@@ -1328,8 +1350,11 @@ def extract_animedekho_all_streams(
             continue
         if "vidstream" in srv:
             resolved = _resolve_animedekho_embed(emb, ep_url)
-            if resolved:
-                res["ravok_url"] = resolved
+            # Only set ravok_url if resolved is a real ravok/as-cdn URL (not a get2.php relay)
+            # and don't overwrite an already-good ravok_url with a bad one
+            if resolved and any(k in resolved for k in ("ravok.buzz", "as-cdn", "vexal.top")):
+                if not res["ravok_url"] or "get2.php" in res["ravok_url"] or not any(k in res["ravok_url"] for k in ("ravok.buzz", "as-cdn", "vexal.top")):
+                    res["ravok_url"] = resolved
         elif "vidara" in srv or "vidaara" in srv:
             resolved = _resolve_animedekho_embed(emb, ep_url)
             if resolved:
@@ -1377,13 +1402,33 @@ def extract_animedekho_stream(
         ep_url = ep_map.get(episode, "")
 
     if not ep_url:
-        clean_name = re.sub(r'\s*(season\s*\d+|s\d+)\s*$', '', show_name, flags=re.IGNORECASE).strip()
-        slug = re.sub(r'[^a-z0-9]+', '-', clean_name.lower()).strip('-')
-        for s in [slug, f"{slug}-hindi"]:
+        c_name = re.sub(r'[\s\ufffd\u2013\u2014\-–—]+(Episode\s*\d+\s*Added!|All\s*Episodes\s*Added!).*$', '', show_name, flags=re.IGNORECASE)
+        c_name = re.sub(r'\s*(season\s*\d+|s\d+)\s*$', '', c_name, flags=re.IGNORECASE).strip()
+        c_name = c_name.replace('\ufffdm', "'m").replace('\ufffds', "'s").replace('Fianc\ufffd', 'Fiance')
+        c_name = re.sub(r'&#8211;|–|—', '-', c_name)
+        c_name = re.sub(r'&#8217;|’|\ufffd', "'", c_name)
+        slug = re.sub(r'[^a-z0-9]+', '-', c_name.lower()).strip('-')
+
+        candidates = [slug, f"{slug}-hindi"]
+        if direct_url and ("/series-hindi/" in direct_url or "/series/" in direct_url):
+            dir_slug = direct_url.strip("/").split("/")[-1]
+            if dir_slug not in candidates:
+                candidates.insert(0, dir_slug)
+        if "bleach" in slug and "bleach" not in candidates:
+            candidates.append("bleach")
+        if "lord-of-mysteries" in slug and "lord-of-mysteries" not in candidates:
+            candidates.append("lord-of-mysteries")
+        if "fiance" in slug or "fianc" in slug:
+            candidates.append("even-though-im-a-super-timid-noble-girl-i-accepted-the-bet-from-my-cunning-fiance")
+            candidates.append("even-though-im-a-super-timid-noble-girl-i-accepted-the-bet-from-my-cunning-fianc")
+        if "dating-sim" in slug:
+            candidates.insert(0, "trapped-in-a-dating-sim-the-world-of-otome-games-is-tough-for-mobs")
+
+        for s in candidates:
             candidate = f"{base}/epi/{s}-{season}x{episode}/"
             try:
                 r_test = _animedekho_session.get(candidate, timeout=20)
-                if r_test.status_code == 200 and "404" not in r_test.text and len(r_test.text) > 1000:
+                if r_test.status_code == 200 and len(r_test.text) > 1000 and "<title>404" not in r_test.text:
                     ep_url = candidate
                     break
             except Exception:
@@ -1497,13 +1542,33 @@ def extract_animedekho_vidmoly_stream(
         ep_url = ep_map.get(episode, "")
 
     if not ep_url:
-        clean_name = re.sub(r'\s*(season\s*\d+|s\d+)\s*$', '', show_name, flags=re.IGNORECASE).strip()
-        slug = re.sub(r'[^a-z0-9]+', '-', clean_name.lower()).strip('-')
-        for s in [slug, f"{slug}-hindi"]:
+        c_name = re.sub(r'[\s\ufffd\u2013\u2014\-–—]+(Episode\s*\d+\s*Added!|All\s*Episodes\s*Added!).*$', '', show_name, flags=re.IGNORECASE)
+        c_name = re.sub(r'\s*(season\s*\d+|s\d+)\s*$', '', c_name, flags=re.IGNORECASE).strip()
+        c_name = c_name.replace('\ufffdm', "'m").replace('\ufffds', "'s").replace('Fianc\ufffd', 'Fiance')
+        c_name = re.sub(r'&#8211;|–|—', '-', c_name)
+        c_name = re.sub(r'&#8217;|’|\ufffd', "'", c_name)
+        slug = re.sub(r'[^a-z0-9]+', '-', c_name.lower()).strip('-')
+
+        candidates = [slug, f"{slug}-hindi"]
+        if direct_url and ("/series-hindi/" in direct_url or "/series/" in direct_url):
+            dir_slug = direct_url.strip("/").split("/")[-1]
+            if dir_slug not in candidates:
+                candidates.insert(0, dir_slug)
+        if "bleach" in slug and "bleach" not in candidates:
+            candidates.append("bleach")
+        if "lord-of-mysteries" in slug and "lord-of-mysteries" not in candidates:
+            candidates.append("lord-of-mysteries")
+        if "fiance" in slug or "fianc" in slug:
+            candidates.append("even-though-im-a-super-timid-noble-girl-i-accepted-the-bet-from-my-cunning-fiance")
+            candidates.append("even-though-im-a-super-timid-noble-girl-i-accepted-the-bet-from-my-cunning-fianc")
+        if "dating-sim" in slug:
+            candidates.insert(0, "trapped-in-a-dating-sim-the-world-of-otome-games-is-tough-for-mobs")
+
+        for s in candidates:
             candidate = f"{base}/epi/{s}-{season}x{episode}/"
             try:
                 r_test = _animedekho_session.get(candidate, timeout=20)
-                if r_test.status_code == 200 and "404" not in r_test.text and len(r_test.text) > 1000:
+                if r_test.status_code == 200 and len(r_test.text) > 1000 and "<title>404" not in r_test.text:
                     ep_url = candidate
                     break
             except Exception:
