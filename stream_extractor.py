@@ -1317,7 +1317,9 @@ def extract_animedekho_all_streams(
             dir_slug = direct_url.strip("/").split("/")[-1]
             if dir_slug not in candidates:
                 candidates.insert(0, dir_slug)
-        if "bleach" in slug and "bleach" not in candidates:
+        if "thousand-year" in slug or "tybw" in slug or "blood-war" in slug:
+            candidates.insert(0, "bleach-thousand-year-blood-war")
+        elif "bleach" in slug and "bleach" not in candidates:
             candidates.append("bleach")
         if "lord-of-mysteries" in slug and "lord-of-mysteries" not in candidates:
             candidates.append("lord-of-mysteries")
@@ -1328,14 +1330,21 @@ def extract_animedekho_all_streams(
             candidates.insert(0, "trapped-in-a-dating-sim-the-world-of-otome-games-is-tough-for-mobs")
 
         for s in candidates:
-            candidate = f"{base}/epi/{s}-{season}x{episode}/"
-            try:
-                r_test = _animedekho_session.get(candidate, timeout=10)
-                if r_test.status_code == 200 and len(r_test.text) > 1000 and "<title>404" not in r_test.text:
-                    ep_url = candidate
-                    break
-            except Exception:
-                pass
+            seasons_to_test = [season]
+            if "thousand-year" in s or "tybw" in s:
+                if 2 not in seasons_to_test:
+                    seasons_to_test.append(2)
+            for sn in seasons_to_test:
+                candidate = f"{base}/epi/{s}-{sn}x{episode}/"
+                try:
+                    r_test = _animedekho_session.get(candidate, timeout=10)
+                    if r_test.status_code == 200 and len(r_test.text) > 1000 and "<title>404" not in r_test.text:
+                        ep_url = candidate
+                        break
+                except Exception:
+                    pass
+            if ep_url:
+                break
 
     if not ep_url:
         return {"ravok_url": None, "vidaara_url": None, "vidmoly_url": None}
@@ -1414,7 +1423,9 @@ def extract_animedekho_stream(
             dir_slug = direct_url.strip("/").split("/")[-1]
             if dir_slug not in candidates:
                 candidates.insert(0, dir_slug)
-        if "bleach" in slug and "bleach" not in candidates:
+        if "thousand-year" in slug or "tybw" in slug or "blood-war" in slug:
+            candidates.insert(0, "bleach-thousand-year-blood-war")
+        elif "bleach" in slug and "bleach" not in candidates:
             candidates.append("bleach")
         if "lord-of-mysteries" in slug and "lord-of-mysteries" not in candidates:
             candidates.append("lord-of-mysteries")
@@ -1425,14 +1436,21 @@ def extract_animedekho_stream(
             candidates.insert(0, "trapped-in-a-dating-sim-the-world-of-otome-games-is-tough-for-mobs")
 
         for s in candidates:
-            candidate = f"{base}/epi/{s}-{season}x{episode}/"
-            try:
-                r_test = _animedekho_session.get(candidate, timeout=20)
-                if r_test.status_code == 200 and len(r_test.text) > 1000 and "<title>404" not in r_test.text:
-                    ep_url = candidate
-                    break
-            except Exception:
-                pass
+            seasons_to_test = [season]
+            if "thousand-year" in s or "tybw" in s:
+                if 2 not in seasons_to_test:
+                    seasons_to_test.append(2)
+            for sn in seasons_to_test:
+                candidate = f"{base}/epi/{s}-{sn}x{episode}/"
+                try:
+                    r_test = _animedekho_session.get(candidate, timeout=20)
+                    if r_test.status_code == 200 and len(r_test.text) > 1000 and "<title>404" not in r_test.text:
+                        ep_url = candidate
+                        break
+                except Exception:
+                    pass
+            if ep_url:
+                break
 
     if not ep_url:
         return None
@@ -1554,7 +1572,9 @@ def extract_animedekho_vidmoly_stream(
             dir_slug = direct_url.strip("/").split("/")[-1]
             if dir_slug not in candidates:
                 candidates.insert(0, dir_slug)
-        if "bleach" in slug and "bleach" not in candidates:
+        if "thousand-year" in slug or "tybw" in slug or "blood-war" in slug:
+            candidates.insert(0, "bleach-thousand-year-blood-war")
+        elif "bleach" in slug and "bleach" not in candidates:
             candidates.append("bleach")
         if "lord-of-mysteries" in slug and "lord-of-mysteries" not in candidates:
             candidates.append("lord-of-mysteries")
@@ -1565,14 +1585,21 @@ def extract_animedekho_vidmoly_stream(
             candidates.insert(0, "trapped-in-a-dating-sim-the-world-of-otome-games-is-tough-for-mobs")
 
         for s in candidates:
-            candidate = f"{base}/epi/{s}-{season}x{episode}/"
-            try:
-                r_test = _animedekho_session.get(candidate, timeout=20)
-                if r_test.status_code == 200 and len(r_test.text) > 1000 and "<title>404" not in r_test.text:
-                    ep_url = candidate
-                    break
-            except Exception:
-                pass
+            seasons_to_test = [season]
+            if "thousand-year" in s or "tybw" in s:
+                if 2 not in seasons_to_test:
+                    seasons_to_test.append(2)
+            for sn in seasons_to_test:
+                candidate = f"{base}/epi/{s}-{sn}x{episode}/"
+                try:
+                    r_test = _animedekho_session.get(candidate, timeout=20)
+                    if r_test.status_code == 200 and len(r_test.text) > 1000 and "<title>404" not in r_test.text:
+                        ep_url = candidate
+                        break
+                except Exception:
+                    pass
+            if ep_url:
+                break
 
     if not ep_url:
         return None

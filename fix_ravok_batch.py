@@ -75,7 +75,9 @@ def resolve_series_url(clean_name: str) -> Optional[str]:
 
     # Known specific slug aliases - prioritize these to avoid fuzzy mismatch
     alias_probes = []
-    if "bleach" in slug:
+    if "thousand-year" in slug or "tybw" in slug or "blood-war" in slug:
+        alias_probes.append("bleach-thousand-year-blood-war")
+    elif "bleach" in slug:
         alias_probes.extend(["bleach", "bleach-hindi"])
     if "dating-sim" in slug:
         alias_probes.append("trapped-in-a-dating-sim-the-world-of-otome-games-is-tough-for-mobs")
