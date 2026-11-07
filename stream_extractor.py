@@ -2523,9 +2523,82 @@ def extract_toonstream_all_servers(
 
 
 
-# ── Satoru.one (Server MG) direct resolver ────────────────────────────────────
+# ── Satoru.one (Server MG) direct resolver (CF Clearance Session) ──────────────
 
 _satoru_show_cache: dict[str, tuple[int, str] | None] = {}
+_SATORU_SESSION = None
+_SATORU_SESSION_EXPIRY = 0
+_SATORU_SESSION_LOCK = __import__('threading').Lock()
+
+
+def _satoru_get_session():
+    """
+    Acquire an authenticated curl_cffi session for satoru.one with cf_clearance & sv_pass.
+    Launches headless browser once off-screen to solve Turnstile & visitor challenges,
+    then caches the session for 30 minutes.
+    """
+    global _SATORU_SESSION, _SATORU_SESSION_EXPIRY
+    import time
+    from curl_cffi import requests
+
+    now = time.time()
+    if _SATORU_SESSION is not None and now < _SATORU_SESSION_EXPIRY:
+        return _SATORU_SESSION
+
+    with _SATORU_SESSION_LOCK:
+        if _SATORU_SESSION is not None and now < _SATORU_SESSION_EXPIRY:
+            return _SATORU_SESSION
+
+        logger.info("Satoru.one: initializing local CF clearance session...")
+        cookie_dict = {}
+        ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+
+        # 1. Try Playwright first (fast & reliable)
+        try:
+            from playwright.sync_api import sync_playwright
+            with sync_playwright() as p:
+                b = p.chromium.launch(headless=True)
+                page = b.new_page()
+                page.goto('https://satoru.one/home', timeout=15000)
+                page.wait_for_timeout(3500)
+                cookies = page.context.cookies()
+                ua = page.evaluate("navigator.userAgent")
+                b.close()
+                cookie_dict = {c['name']: c['value'] for c in cookies}
+        except Exception as exc:
+            logger.debug("Satoru.one Playwright session error: %s", exc)
+
+        # 2. Try undetected_chromedriver fallback
+        if not cookie_dict:
+            try:
+                import undetected_chromedriver as uc
+                options = uc.ChromeOptions()
+                options.add_argument("--headless=new")
+                driver = uc.Chrome(options=options)
+                driver.get("https://satoru.one/home")
+                time.sleep(5)
+                cookies = driver.get_cookies()
+                ua = driver.execute_script("return navigator.userAgent;")
+                driver.quit()
+                cookie_dict = {c['name']: c['value'] for c in cookies}
+            except Exception as exc:
+                logger.debug("Satoru.one undetected_chromedriver session error: %s", exc)
+
+        if not cookie_dict:
+            logger.warning("Satoru.one: failed to acquire CF clearance cookies.")
+            return None
+
+        s = requests.Session(impersonate="chrome124")
+        for k, v in cookie_dict.items():
+            s.cookies.set(k, v, domain=".satoru.one")
+        s.headers.update({
+            "User-Agent": ua,
+            "Referer": "https://satoru.one/home",
+        })
+        _SATORU_SESSION = s
+        _SATORU_SESSION_EXPIRY = now + 1800  # 30 minutes
+        logger.info("Satoru.one: CF session established successfully (sv_pass=%s)", 'sv_pass' in cookie_dict)
+        return s
 
 
 def _get_satoru_slug_candidates(show_name: str, season: int = 1) -> list[str]:
@@ -2575,17 +2648,15 @@ def _satoru_search_show(show_name: str, season: int = 1) -> tuple[int, str] | No
     if cache_key in _satoru_show_cache:
         return _satoru_show_cache[cache_key]
 
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "X-Requested-With": "XMLHttpRequest",
-    }
+    s = _satoru_get_session()
+    fetcher = s.get if s else requests.get
 
     # ── 1. Direct watch URL pre-pass (Fastest & 100% reliable) ──────────────────────
     slug_candidates = _get_satoru_slug_candidates(show_name, season=season)
     for slug in slug_candidates:
         watch_url = f"https://satoru.one/watch/{slug}"
         try:
-            rw = requests.get(watch_url, headers=headers, timeout=5)
+            rw = fetcher(watch_url, timeout=8)
             if rw.status_code == 200:
                 m = re.search(r'const\s+movieId\s*=\s*(\d+)', rw.text)
                 if m:
@@ -2596,7 +2667,7 @@ def _satoru_search_show(show_name: str, season: int = 1) -> tuple[int, str] | No
         except Exception:
             pass
 
-    # ── 2. Filter search fallback ──────────────────────────────────────────────────
+    # ── 2. Suggest API search fallback ─────────────────────────────────────────────
     from rapidfuzz import fuzz as _fuzz
     clean_show = re.sub(r'\s*(season\s*\d+|s\d+)\s*$', '', show_name, flags=re.IGNORECASE).strip()
     clean_show = re.sub(r'[\–\—\-:]+', ' ', clean_show).strip()
@@ -2607,15 +2678,20 @@ def _satoru_search_show(show_name: str, season: int = 1) -> tuple[int, str] | No
 
     for kw in keywords:
         try:
-            r = requests.get(
-                "https://satoru.one/filter",
-                params={"keyword": kw},
-                headers=headers,
-                timeout=6,
+            kw_enc = urllib.parse.quote_plus(kw)
+            r = fetcher(
+                f"https://satoru.one/ajax/movie/search/suggest?keyword={kw_enc}",
+                headers={"X-Requested-With": "XMLHttpRequest", "Referer": "https://satoru.one/home"},
+                timeout=8,
             )
             if r.status_code != 200:
                 continue
-            soup = BeautifulSoup(r.text, "html.parser")
+            html = ""
+            try:
+                html = r.json().get("html", "")
+            except Exception:
+                html = r.text
+            soup = BeautifulSoup(html, "html.parser")
             for a in soup.find_all("a", href=True):
                 href = a["href"]
                 if "/watch/" in href:
@@ -2626,17 +2702,15 @@ def _satoru_search_show(show_name: str, season: int = 1) -> tuple[int, str] | No
                         best_score = score
                         best_match = (href, slug, title)
         except Exception as exc:
-            logger.debug("Satoru search error for %r: %s", kw, exc)
+            logger.debug("Satoru suggest search error for %r: %s", kw, exc)
 
-    if not best_match or best_score < 50:
+    if not best_match or best_score < 40:
         _satoru_show_cache[cache_key] = None
         return None
 
     href, slug, title = best_match
 
     # When looking for season > 1, reject slugs that don't contain the season number.
-    # A match like 'that-time-i-got-reincarnated-as-a-slime' is Season 1 only;
-    # it must NOT be used for S2/S3/S4 searches.
     if season > 1:
         season_indicators = [f"season-{season}", f"s{season}", f"season{season}"]
         if not any(ind in slug.lower() for ind in season_indicators):
@@ -2647,21 +2721,63 @@ def _satoru_search_show(show_name: str, season: int = 1) -> tuple[int, str] | No
             _satoru_show_cache[cache_key] = None
             return None
 
-    full_href = href if href.startswith("http") else f"https://satoru.one{href}"
+    full_href = href if href.startswith("http") else f"https://satoru.one/watch/{slug}"
     try:
-        rw = requests.get(full_href, headers={"User-Agent": headers["User-Agent"]}, timeout=6)
+        rw = fetcher(full_href, timeout=8)
         m = re.search(r'const\s+movieId\s*=\s*(\d+)', rw.text)
         if not m:
             _satoru_show_cache[cache_key] = None
             return None
         movie_id = int(m.group(1))
-        logger.info("Satoru.one filter match: '%s' (id=%d, slug=%s, score=%d)", title, movie_id, slug, best_score)
+        logger.info("Satoru.one suggest match: '%s' (id=%d, slug=%s, score=%d)", title, movie_id, slug, best_score)
         _satoru_show_cache[cache_key] = (movie_id, slug)
         return (movie_id, slug)
     except Exception as exc:
         logger.debug("Satoru watch page error for %r: %s", full_href, exc)
         _satoru_show_cache[cache_key] = None
         return None
+
+
+def count_satoru_episodes(show_name: str, season: int = 1, direct_url: str = "") -> int:
+    """Return total episode count on Satoru.one for show/season."""
+    s = _satoru_get_session()
+    fetcher = s.get if s else requests.get
+
+    movie_id = None
+    if direct_url and "satoru.one" in direct_url:
+        m_slug = re.search(r'/watch/([^/?#]+)', direct_url)
+        if m_slug:
+            slug = m_slug.group(1)
+            try:
+                rw = fetcher(f"https://satoru.one/watch/{slug}", timeout=8)
+                m = re.search(r'const\s+movieId\s*=\s*(\d+)', rw.text)
+                if m:
+                    movie_id = int(m.group(1))
+            except Exception:
+                pass
+
+    if not movie_id:
+        res = _satoru_search_show(show_name, season=season)
+        if res:
+            movie_id, _ = res
+
+    if not movie_id:
+        return 0
+
+    try:
+        r_eps = fetcher(
+            f"https://satoru.one/ajax/episode/list/{movie_id}",
+            headers={"X-Requested-With": "XMLHttpRequest", "Referer": "https://satoru.one/home"},
+            timeout=10,
+        )
+        if r_eps.status_code == 200:
+            html = r_eps.json().get("html", "")
+            soup = BeautifulSoup(html, "html.parser")
+            items = soup.find_all("a", class_="ep-item")
+            return len(items)
+    except Exception:
+        pass
+    return 0
 
 
 def resolve_satoru_episode(
@@ -2672,13 +2788,10 @@ def resolve_satoru_episode(
 ) -> Optional[str]:
     """
     Fetch the Server MG embed URL directly from satoru.one.
-    Returns the iframe embed URL (e.g. https://cdn.jollify.cloud/v/...) or None.
+    Returns the iframe embed URL (e.g. https://cdn.storox.in/v/...) or None.
     """
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "X-Requested-With": "XMLHttpRequest",
-        "Referer": "https://satoru.one/",
-    }
+    s = _satoru_get_session()
+    fetcher = s.get if s else requests.get
 
     result = None
     if direct_url and "satoru.one" in direct_url:
@@ -2686,7 +2799,7 @@ def resolve_satoru_episode(
         if m_slug:
             slug = m_slug.group(1)
             try:
-                rw = requests.get(f"https://satoru.one/watch/{slug}", headers=headers, timeout=6)
+                rw = fetcher(f"https://satoru.one/watch/{slug}", timeout=8)
                 m = re.search(r'const\s+movieId\s*=\s*(\d+)', rw.text)
                 if m:
                     movie_id = int(m.group(1))
@@ -2710,12 +2823,17 @@ def resolve_satoru_episode(
 
     movie_id, slug = result
 
+    ajax_headers = {
+        "X-Requested-With": "XMLHttpRequest",
+        "Referer": f"https://satoru.one/watch/{slug}",
+    }
+
     try:
         # Step 3: get episode list
-        r_eps = requests.get(
+        r_eps = fetcher(
             f"https://satoru.one/ajax/episode/list/{movie_id}",
-            headers=headers,
-            timeout=8,
+            headers=ajax_headers,
+            timeout=10,
         )
         if r_eps.status_code != 200:
             return None
@@ -2724,9 +2842,6 @@ def resolve_satoru_episode(
         ep_items = ep_soup.find_all("a", class_="ep-item")
 
         # Find the episode matching our season+episode number
-        # Satoru.one episode numbering is continuous across seasons, so for
-        # season > 1 we look inside the correct season block if available,
-        # OR just match data-number == episode (works when each season is a separate show entry)
         ep_data_id = None
         for ep in ep_items:
             num = ep.get("data-number", "")
@@ -2739,10 +2854,10 @@ def resolve_satoru_episode(
             return None
 
         # Step 4: get servers for this episode
-        r_srv = requests.get(
+        r_srv = fetcher(
             f"https://satoru.one/ajax/episode/servers?episodeId={ep_data_id}",
-            headers=headers,
-            timeout=8,
+            headers=ajax_headers,
+            timeout=10,
         )
         if r_srv.status_code != 200:
             return None
@@ -2756,10 +2871,10 @@ def resolve_satoru_episode(
         server_data_id = server_items[0].get("data-id")
 
         # Step 5: get embed link
-        r_src = requests.get(
+        r_src = fetcher(
             f"https://satoru.one/ajax/episode/sources?id={server_data_id}",
-            headers=headers,
-            timeout=8,
+            headers=ajax_headers,
+            timeout=10,
         )
         if r_src.status_code != 200:
             return None

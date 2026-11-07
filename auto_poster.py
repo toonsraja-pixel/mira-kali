@@ -4848,6 +4848,28 @@ class AutoPosterApp(ctk.CTk):
             except Exception:
                 pass
 
+        # Auto-detect total episodes from Satoru if sat_url or mode == "satoru" and end_ep is default
+        if sat_url and (end_ep == 12 or end_ep <= 1):
+            try:
+                from stream_extractor import count_satoru_episodes
+                sat_cnt = count_satoru_episodes(show_name, season=season, direct_url=sat_url)
+                if sat_cnt > 0:
+                    end_ep = sat_cnt
+                    if hasattr(self, "_ext_end_ep_var"):
+                        self._ext_end_ep_var.set(str(end_ep))
+            except Exception:
+                pass
+        elif mode == "satoru" and not sat_url and (end_ep == 12 or end_ep <= 1):
+            try:
+                from stream_extractor import count_satoru_episodes
+                sat_cnt = count_satoru_episodes(show_name, season=season)
+                if sat_cnt > 0:
+                    end_ep = sat_cnt
+                    if hasattr(self, "_ext_end_ep_var"):
+                        self._ext_end_ep_var.set(str(end_ep))
+            except Exception:
+                pass
+
         # Auto-detect total episodes from AniHosts / KotoTV if an_url or mode is selected and end_ep is default
         if an_url and (end_ep == 12 or end_ep <= 1):
             try:
@@ -4982,15 +5004,19 @@ class AutoPosterApp(ctk.CTk):
                         else:
                             pg = ad_streams["vidaara_url"]
                     vidmoly = ad_streams.get("vidmoly_url")
-                elif mode in ("all", "both", "toonstream", "satoru"):
+                elif mode in ("all", "both", "toonstream"):
                     ruby, mg, pg = extract_toonstream_all_servers(
                         show_name, season=season, episode=ep, direct_url=ts_url or ad_url
+                    )
+                elif mode == "satoru":
+                    mg = resolve_satoru_episode(
+                        show_name, season=season, episode=ep, direct_url=sat_url
                     )
                 if mode in ("all", "both", "multimovies"):
                     multi = resolve_multimovies_episode(
                         show_name, season=season, episode=ep, direct_url=mm_url
                     )
-                if not mg and mode in ("all", "both", "satoru"):
+                if not mg and mode in ("all", "both"):
                     mg = resolve_satoru_episode(
                         show_name, season=season, episode=ep, direct_url=sat_url
                     )
