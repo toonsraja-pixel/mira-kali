@@ -4764,6 +4764,10 @@ class AutoPosterApp(ctk.CTk):
             if m_u:
                 db_url = m_u.group(0).rstrip(".,;)")
         dl_url    = self._ext_dl_url_var.get().strip() if hasattr(self, "_ext_dl_url_var") else ""
+        an_url    = self._ext_an_url_var.get().strip() if hasattr(self, "_ext_an_url_var") else ""
+        an_lang   = self._ext_an_lang_var.get().strip() if hasattr(self, "_ext_an_lang_var") else self.settings.get("anihosts_language", self.settings.get("kototv_language", "sub"))
+        an_server = self._ext_an_server_var.get().strip() if hasattr(self, "_ext_an_server_var") else self.settings.get("anihosts_preferred_server", self.settings.get("kototv_preferred_server", "Server 1 (Kaze)"))
+        mode      = self._ext_source_mode_var.get() if hasattr(self, "_ext_source_mode_var") else "all"
 
         # Auto-derive show title from URL if not typed
         if not show_name:
@@ -4795,6 +4799,11 @@ class AutoPosterApp(ctk.CTk):
                     show_name = clean_slug.replace("-", " ").title()
             elif ad_url:
                 show_name = ad_url.rstrip("/").split("/")[-1].replace("-", " ").title()
+            elif an_url:
+                clean_an = re.sub(r'/(?:watch|episode|ep).*$', '', an_url.rstrip('/'), flags=re.I)
+                clean_slug = clean_an.rstrip('/').split('/')[-1]
+                clean_slug = re.sub(r'-\d+$', '', clean_slug)
+                show_name = clean_slug.replace("-", " ").title()
             elif mm_url:
                 show_name = mm_url.rstrip("/").split("/")[-1].replace("-", " ").title()
             elif sat_url:
@@ -4893,16 +4902,9 @@ class AutoPosterApp(ctk.CTk):
             except Exception:
                 pass
 
-        mode = self._ext_source_mode_var.get() if hasattr(self, "_ext_source_mode_var") else "both"
-
         self._ext_extract_btn.configure(state="disabled", text="⏳ Extracting…")
         self._ext_box.delete("1.0", "end")
         self._ext_box.insert("end", f"# Extracting stream links for {show_name} S{season} E{start_ep}-E{end_ep} [{mode}]…\n\n")
-
-        dl_url = self._ext_dl_url_var.get().strip() if hasattr(self, "_ext_dl_url_var") else ""
-        an_url = self._ext_an_url_var.get().strip() if hasattr(self, "_ext_an_url_var") else ""
-        an_lang = self._ext_an_lang_var.get().strip() if hasattr(self, "_ext_an_lang_var") else self.settings.get("anihosts_language", self.settings.get("kototv_language", "sub"))
-        an_server = self._ext_an_server_var.get().strip() if hasattr(self, "_ext_an_server_var") else self.settings.get("anihosts_preferred_server", self.settings.get("kototv_preferred_server", "Server 1 (Kaze)"))
 
         threading.Thread(
             target=self._extract_links_only_worker,
