@@ -13,7 +13,7 @@ import threading
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -3285,16 +3285,70 @@ def search_anihosts_series(show_name: str, season: int = 1) -> Optional[str]:
     return None
 
 
+_ANIHOSTS_SEASONS_CACHE: Dict[str, List[Tuple[int, int, int]]] = {}
+
+
+def get_anihosts_season_for_episode(slug: str, episode: int, default_season: int = 1) -> int:
+    """
+    Look up the AniHosts season ID covering `episode` for multi-season continuous shows
+    (e.g., One Piece, Bleach, Naruto Shippuden).
+    """
+    if slug not in _ANIHOSTS_SEASONS_CACHE:
+        try:
+            url = f"https://anihosts.xyz/anime/{slug}"
+            html_doc = _anihosts_get(url)
+            chunks = re.findall(r'self\.__next_f\.push\(\[1,"(.*?)"\]\)', html_doc)
+            seasons_map = []
+            for ch in chunks:
+                decoded = ch.encode().decode('unicode-escape', errors='ignore')
+                if '"seasons":[' in decoded:
+                    start = decoded.find('"seasons":[') + len('"seasons":')
+                    depth = 0
+                    end = start
+                    while end < len(decoded):
+                        if decoded[end] == '[':
+                            depth += 1
+                        elif decoded[end] == ']':
+                            depth -= 1
+                            if depth == 0:
+                                end += 1
+                                break
+                        end += 1
+                    raw_json = decoded[start:end]
+                    clean_json = re.sub(r':"\$undefined"', ':null', raw_json)
+                    s_list = json.loads(clean_json)
+                    for item in s_list:
+                        s_id = item.get("id")
+                        name = item.get("season", "")
+                        m = re.search(r'\((\d+)[–\-](\d+)\)', name)
+                        if m:
+                            seasons_map.append((s_id, int(m.group(1)), int(m.group(2))))
+            _ANIHOSTS_SEASONS_CACHE[slug] = seasons_map
+        except Exception:
+            _ANIHOSTS_SEASONS_CACHE[slug] = []
+
+    for s_id, min_ep, max_ep in _ANIHOSTS_SEASONS_CACHE.get(slug, []):
+        if min_ep <= episode <= max_ep:
+            return s_id
+
+    return default_season
+
+
 def count_anihosts_episodes(show_name: str, season: int = 1, direct_url: str = "") -> int:
     """Return total episode count on AniHosts for show/season."""
     if direct_url:
         u = direct_url.strip()
         if "/watch/" in u:
-            slug = u.split("/watch/")[1].split("/")[0].split("?")[0]
+            parts = u.split("/watch/")[1].split("?")[0].strip("/").split("/")
+            slug = parts[0]
         elif "/anime/" in u:
             slug = u.rstrip("/").split("/anime/")[-1].split("/")[0].split("?")[0]
         else:
             slug = u.rstrip("/").split("/")[-1].split("?")[0]
+
+        m_s = re.search(r'[?&]season=(\d+)', u)
+        if m_s:
+            season = int(m_s.group(1))
     else:
         slug = search_anihosts_series(show_name, season)
 
@@ -3302,31 +3356,32 @@ def count_anihosts_episodes(show_name: str, season: int = 1, direct_url: str = "
         return 0
 
     url = f"https://anihosts.xyz/anime/{slug}"
+    if season > 1:
+        url += f"?season={season}"
+
     html_doc = _anihosts_get(url)
     if not html_doc:
         return 0
 
+    # Try JSON Next.js chunks first (most accurate totalEpisodes)
+    m = re.search(r'"totalEpisodes":\s*(\d+)', html_doc)
+    if m:
+        return int(m.group(1))
+
+    # Fallback to counting /watch/ links on page
     sp = BeautifulSoup(html_doc, "html.parser")
-    eps = []
-    for a in sp.find_all("a", href=re.compile(r'/watch/')):
-        href = a.get("href", "")
-        m = re.search(r'/watch/[^/]+/(\d+)', href)
-        if m:
-            try:
-                eps.append(int(m.group(1)))
-            except ValueError:
-                pass
-
-    if eps:
-        return max(eps)
-
-    # Check for metadata in scripts (e.g. "totalEpisodes": 24)
-    m_tot = re.search(r'"(?:totalEpisodes|episodes|epCount)":\s*(\d+)', html_doc, re.I)
-    if m_tot:
-        try:
-            return int(m_tot.group(1))
-        except ValueError:
-            pass
+    ep_links = sp.find_all("a", href=lambda h: h and f"/watch/{slug}/" in h)
+    if ep_links:
+        max_num = 0
+        for a in ep_links:
+            href = a.get("href", "")
+            m_ep = re.search(rf"/watch/{re.escape(slug)}/(\d+)", href)
+            if m_ep:
+                num = int(m_ep.group(1))
+                if num > max_num:
+                    max_num = num
+        if max_num > 0:
+            return max_num
 
     return 0
 
@@ -3341,6 +3396,7 @@ def get_available_anihosts_servers(
     """
     Fetch all available server embed URLs for an AniHosts episode.
     lang: 'sub' or 'dub'
+    Automatically switches season parameters for continuous-episode shows like One Piece.
     Returns: {"Server 1 (Kaze)": "https://...", "Server 2 (Edge)": "...", "Server 3 (Megaplay)": "..."}
     """
     lang = lang.lower().strip()
@@ -3364,13 +3420,20 @@ def get_available_anihosts_servers(
     m_id = re.search(r'-(\d+)$', slug)
     mal_id = m_id.group(1) if m_id else slug
 
-    watch_url = f"https://anihosts.xyz/watch/{slug}/{episode}?audio={lang}&season={season}"
-    html_doc = _anihosts_get(watch_url)
-    if not html_doc:
-        return {}
+    # Dynamically determine the correct season for this episode
+    actual_season = season
+    if direct_url and "season=" in direct_url:
+        m_s = re.search(r'[?&]season=(\d+)', direct_url)
+        if m_s and season == 1:
+            actual_season = int(m_s.group(1))
 
-    sp = BeautifulSoup(html_doc, "html.parser")
-    iframes = [ifr.get("src", "").strip() for ifr in sp.find_all("iframe") if ifr.get("src")]
+    actual_season = get_anihosts_season_for_episode(slug, episode, default_season=actual_season)
+
+    watch_url = f"https://anihosts.xyz/watch/{slug}/{episode}?audio={lang}&season={actual_season}"
+    html_doc = _anihosts_get(watch_url)
+
+    sp = BeautifulSoup(html_doc, "html.parser") if html_doc else None
+    iframes = [ifr.get("src", "").strip() for ifr in sp.find_all("iframe") if ifr.get("src")] if sp else []
 
     servers: Dict[str, str] = {}
     primary_iframe = iframes[0] if iframes else ""
@@ -3379,38 +3442,40 @@ def get_available_anihosts_servers(
 
     has_edge = False
     has_mega = False
-    for a in sp.find_all("a", href=True):
-        h = a["href"]
-        if "server=edge" in h:
-            has_edge = True
-        elif "server=mega" in h:
-            has_mega = True
+    if sp:
+        for a in sp.find_all("a", href=True):
+            h = a["href"]
+            if "server=edge" in h:
+                has_edge = True
+            elif "server=mega" in h:
+                has_mega = True
 
-    if not has_edge or not has_mega:
-        if "server=edge" in html_doc:
-            has_edge = True
-        if "server=mega" in html_doc:
-            has_mega = True
+        if not has_edge or not has_mega:
+            if "server=edge" in html_doc:
+                has_edge = True
+            if "server=mega" in html_doc:
+                has_mega = True
 
-    if primary_iframe or has_edge or has_mega:
+    # Build or fallback to verified players if mal_id exists
+    if primary_iframe or has_edge or has_mega or (mal_id and str(mal_id).isdigit()):
         if not servers.get("Server 1 (Kaze)"):
             if lang == "dub":
                 servers["Server 1 (Kaze)"] = f"https://embed.animetvplus.site/{mal_id}/{episode}?audio=dub"
             else:
                 servers["Server 1 (Kaze)"] = f"https://embed.animetvplus.site/home/embed/mal/{mal_id}/{episode}"
 
-        if has_edge or primary_iframe:
+        if has_edge or primary_iframe or (mal_id and str(mal_id).isdigit()):
             if lang == "dub":
                 servers["Server 2 (Edge)"] = f"https://embed.animetvplus.site/{mal_id}/{episode}?audio=dub"
             else:
                 servers["Server 2 (Edge)"] = f"https://embed.animetvplus.site/{mal_id}/{episode}"
 
-        if has_mega or primary_iframe:
+        if has_mega or primary_iframe or (mal_id and str(mal_id).isdigit()):
             servers["Server 3 (Megaplay)"] = f"https://megaplay.buzz/stream/mal/{mal_id}/{episode}/{lang}"
 
     if servers:
-        logger.info("AniHosts: %s S%dE%02d [%s] -> %d server(s): %s",
-                    show_name, season, episode, lang.upper(), len(servers), list(servers.keys()))
+        logger.info("AniHosts: %s S%dE%02d [%s] (season=%d) -> %d server(s): %s",
+                    show_name, season, episode, lang.upper(), actual_season, len(servers), list(servers.keys()))
 
     return servers
 

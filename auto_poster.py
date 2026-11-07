@@ -4800,10 +4800,15 @@ class AutoPosterApp(ctk.CTk):
             elif ad_url:
                 show_name = ad_url.rstrip("/").split("/")[-1].replace("-", " ").title()
             elif an_url:
-                clean_an = re.sub(r'/(?:watch|episode|ep).*$', '', an_url.rstrip('/'), flags=re.I)
-                clean_slug = clean_an.rstrip('/').split('/')[-1]
-                clean_slug = re.sub(r'-\d+$', '', clean_slug)
-                show_name = clean_slug.replace("-", " ").title()
+                m_slug = re.search(r'/(?:watch|anime)/([^/?#]+)', an_url)
+                if m_slug:
+                    slug_str = m_slug.group(1)
+                    clean_slug = re.sub(r'-\d+$', '', slug_str)
+                    show_name = clean_slug.replace("-", " ").title()
+                else:
+                    clean_slug = an_url.rstrip('/').split('/')[-1].split('?')[0]
+                    clean_slug = re.sub(r'-\d+$', '', clean_slug)
+                    show_name = clean_slug.replace("-", " ").title()
             elif mm_url:
                 show_name = mm_url.rstrip("/").split("/")[-1].replace("-", " ").title()
             elif sat_url:
@@ -4835,6 +4840,27 @@ class AutoPosterApp(ctk.CTk):
             start_ep = 1
         if end_ep < start_ep:
             end_ep = start_ep
+
+        # Auto-detect season & episode from AniHosts URL if provided
+        if an_url and "anihosts" in an_url.lower():
+            m_s = re.search(r'[?&]season=(\d+)', an_url)
+            if m_s:
+                s_val = int(m_s.group(1))
+                if s_val > 0 and season == 1:
+                    season = s_val
+                    if hasattr(self, "_ext_season_var"):
+                        self._ext_season_var.set(str(season))
+
+            m_ep = re.search(r'/watch/[^/?#]+/(\d+)', an_url)
+            if m_ep:
+                ep_val = int(m_ep.group(1))
+                if ep_val > 0 and (start_ep == 1 and end_ep in (1, 12)):
+                    start_ep = ep_val
+                    end_ep = ep_val
+                    if hasattr(self, "_ext_start_ep_var"):
+                        self._ext_start_ep_var.set(str(start_ep))
+                    if hasattr(self, "_ext_end_ep_var"):
+                        self._ext_end_ep_var.set(str(end_ep))
 
         # Auto-detect total episodes from BlisseyHusband page if bh_url is provided and end_ep is default
         if bh_url and (end_ep == 12 or end_ep <= 1):
