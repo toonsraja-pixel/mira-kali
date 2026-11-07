@@ -3044,6 +3044,295 @@ def extract_kototv_episode(
 
 
 # ─────────────────────────────────────────────────────────────────
+#  AniHosts.xyz — Sub/Dub iframe extractor
+# ─────────────────────────────────────────────────────────────────
+
+_ANIHOSTS_SERIES_CACHE: Dict[str, Optional[str]] = {}
+
+_ANIHOSTS_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Referer": "https://anihosts.xyz/",
+    "Accept-Language": "en-US,en;q=0.9",
+}
+
+def _anihosts_get(url: str, timeout: int = 15) -> str:
+    """Simple requests fetcher for anihosts.xyz."""
+    try:
+        r = requests.get(url, headers=_ANIHOSTS_HEADERS, timeout=timeout)
+        return r.text if r.status_code == 200 else ""
+    except Exception as exc:
+        logger.debug("AniHosts fetch error for %s: %s", url, exc)
+        return ""
+
+
+def search_anihosts_series(show_name: str, season: int = 1) -> Optional[str]:
+    """
+    Search anihosts.xyz for an anime and return its slug.
+    E.g. 'naruto-shippuden-1735', 'solo-leveling-52299'
+    """
+    import urllib.parse
+    try:
+        from rapidfuzz import fuzz
+    except ImportError:
+        fuzz = None
+
+    cache_key = f"{show_name.lower()}_s{season}"
+    if cache_key in _ANIHOSTS_SERIES_CACHE:
+        return _ANIHOSTS_SERIES_CACHE[cache_key]
+
+    clean_name = re.sub(r'\s*\(?\s*(?:season|s)\s*\d+\s*\)?', '', show_name, flags=re.I).strip()
+    search_query = f"{clean_name} Season {season}" if season > 1 else clean_name
+
+    def _extract_candidates(html_text: str):
+        if not html_text:
+            return []
+        sp = BeautifulSoup(html_text, "html.parser")
+        items = []
+        seen_slugs = set()
+        for a in sp.find_all("a", href=re.compile(r'/anime/[a-z0-9\-]+')):
+            href = a.get("href", "")
+            m = re.search(r'/anime/([a-z0-9][a-z0-9\-]+)', href)
+            if not m:
+                continue
+            sl = m.group(1).rstrip("/")
+            if sl in seen_slugs or sl in ("", "anime"):
+                continue
+            seen_slugs.add(sl)
+            t = a.get("title") or a.get_text(" ", strip=True) or sl
+            items.append((sl, t))
+        return items
+
+    search_url = f"https://anihosts.xyz/search?q={urllib.parse.quote_plus(search_query)}"
+    html_doc = _anihosts_get(search_url)
+    candidates = _extract_candidates(html_doc)
+
+    if not candidates and season > 1:
+        fallback_url = f"https://anihosts.xyz/search?q={urllib.parse.quote_plus(clean_name)}"
+        html_doc = _anihosts_get(fallback_url)
+        candidates = _extract_candidates(html_doc)
+
+    if not candidates:
+        _ANIHOSTS_SERIES_CACHE[cache_key] = None
+        return None
+
+    target_clean = _clean_title_for_slug(clean_name)
+    best_slug = None
+    best_score = -1
+
+    for idx, (slug, title) in enumerate(candidates):
+        slug_clean = slug.lower()
+        title_clean = title.lower()
+
+        if fuzz:
+            s_title = fuzz.token_sort_ratio(search_query.lower(), title_clean)
+            s_slug = fuzz.token_sort_ratio(target_clean, slug_clean)
+            score = max(s_title, s_slug)
+        else:
+            score = sum(1 for w in target_clean.split("-") if w in slug_clean or w in title_clean) * 20
+
+        # Position bonus (earlier items are more relevant)
+        score += max(0, 15 - idx * 2)
+
+        # Penalize side-story arcs, movies, specials unless requested
+        for penalty_word in ['movie', 'special', 'compilation', 'reawakening']:
+            if penalty_word in slug_clean or penalty_word in title_clean:
+                if penalty_word not in clean_name.lower():
+                    score -= 20
+
+        # Prioritize slug if target words are directly in slug
+        if all(w in slug_clean for w in target_clean.split("-") if len(w) > 2):
+            score += 10
+
+        if season > 1:
+            season_patterns = [
+                f"season-{season}", f"s{season}", f"season{season}",
+                f"{season}nd-season", f"{season}rd-season", f"{season}th-season",
+                f"part-{season}", f"part{season}", f"season {season}"
+            ]
+            if any(sp in slug_clean or sp in title_clean for sp in season_patterns):
+                score += 30
+            else:
+                score -= 30
+        else:
+            if re.search(r'season-[2-9]|s[2-9]|part-[2-9]|season [2-9]', slug_clean + " " + title_clean):
+                score -= 30
+
+        if score > best_score:
+            best_score = score
+            best_slug = slug
+
+    if best_slug and best_score >= 35:
+        logger.info("AniHosts matched '%s' S%d -> slug '%s' (score %d)", show_name, season, best_slug, best_score)
+        _ANIHOSTS_SERIES_CACHE[cache_key] = best_slug
+        return best_slug
+
+    _ANIHOSTS_SERIES_CACHE[cache_key] = None
+    return None
+
+
+def count_anihosts_episodes(show_name: str, season: int = 1, direct_url: str = "") -> int:
+    """Return total episode count on AniHosts for show/season."""
+    if direct_url:
+        u = direct_url.strip()
+        if "/watch/" in u:
+            slug = u.split("/watch/")[1].split("/")[0].split("?")[0]
+        elif "/anime/" in u:
+            slug = u.rstrip("/").split("/anime/")[-1].split("/")[0].split("?")[0]
+        else:
+            slug = u.rstrip("/").split("/")[-1].split("?")[0]
+    else:
+        slug = search_anihosts_series(show_name, season)
+
+    if not slug:
+        return 0
+
+    url = f"https://anihosts.xyz/anime/{slug}"
+    html_doc = _anihosts_get(url)
+    if not html_doc:
+        return 0
+
+    sp = BeautifulSoup(html_doc, "html.parser")
+    eps = []
+    for a in sp.find_all("a", href=re.compile(r'/watch/')):
+        href = a.get("href", "")
+        m = re.search(r'/watch/[^/]+/(\d+)', href)
+        if m:
+            try:
+                eps.append(int(m.group(1)))
+            except ValueError:
+                pass
+
+    if eps:
+        return max(eps)
+
+    # Check for metadata in scripts (e.g. "totalEpisodes": 24)
+    m_tot = re.search(r'"(?:totalEpisodes|episodes|epCount)":\s*(\d+)', html_doc, re.I)
+    if m_tot:
+        try:
+            return int(m_tot.group(1))
+        except ValueError:
+            pass
+
+    return 0
+
+
+def get_available_anihosts_servers(
+    show_name: str,
+    season: int = 1,
+    episode: int = 1,
+    lang: str = "sub",
+    direct_url: str = "",
+) -> Dict[str, str]:
+    """
+    Fetch all available server embed URLs for an AniHosts episode.
+    lang: 'sub' or 'dub'
+    Returns: {"Server 1 (Kaze)": "https://...", "Server 2 (Edge)": "...", "Server 3 (Megaplay)": "..."}
+    """
+    lang = lang.lower().strip()
+    if lang not in ("sub", "dub"):
+        lang = "sub"
+
+    if direct_url:
+        u = direct_url.strip()
+        if "/watch/" in u:
+            parts = u.split("/watch/")[1].split("?")[0].strip("/").split("/")
+            slug = parts[0]
+        elif "/anime/" in u:
+            slug = u.rstrip("/").split("/anime/")[-1].split("/")[0].split("?")[0]
+        else:
+            slug = u.rstrip("/").split("/")[-1].split("?")[0]
+    else:
+        slug = search_anihosts_series(show_name, season)
+        if not slug:
+            return {}
+
+    m_id = re.search(r'-(\d+)$', slug)
+    mal_id = m_id.group(1) if m_id else slug
+
+    watch_url = f"https://anihosts.xyz/watch/{slug}/{episode}?audio={lang}&season={season}"
+    html_doc = _anihosts_get(watch_url)
+    if not html_doc:
+        return {}
+
+    sp = BeautifulSoup(html_doc, "html.parser")
+    iframes = [ifr.get("src", "").strip() for ifr in sp.find_all("iframe") if ifr.get("src")]
+
+    servers: Dict[str, str] = {}
+    primary_iframe = iframes[0] if iframes else ""
+    if primary_iframe:
+        servers["Server 1 (Kaze)"] = primary_iframe
+
+    has_edge = False
+    has_mega = False
+    for a in sp.find_all("a", href=True):
+        h = a["href"]
+        if "server=edge" in h:
+            has_edge = True
+        elif "server=mega" in h:
+            has_mega = True
+
+    if not has_edge or not has_mega:
+        if "server=edge" in html_doc:
+            has_edge = True
+        if "server=mega" in html_doc:
+            has_mega = True
+
+    if primary_iframe or has_edge or has_mega:
+        if not servers.get("Server 1 (Kaze)"):
+            if lang == "dub":
+                servers["Server 1 (Kaze)"] = f"https://embed.animetvplus.site/{mal_id}/{episode}?audio=dub"
+            else:
+                servers["Server 1 (Kaze)"] = f"https://embed.animetvplus.site/home/embed/mal/{mal_id}/{episode}"
+
+        if has_edge or primary_iframe:
+            if lang == "dub":
+                servers["Server 2 (Edge)"] = f"https://embed.animetvplus.site/{mal_id}/{episode}?audio=dub"
+            else:
+                servers["Server 2 (Edge)"] = f"https://embed.animetvplus.site/{mal_id}/{episode}"
+
+        if has_mega or primary_iframe:
+            servers["Server 3 (Megaplay)"] = f"https://megaplay.buzz/stream/mal/{mal_id}/{episode}/{lang}"
+
+    if servers:
+        logger.info("AniHosts: %s S%dE%02d [%s] -> %d server(s): %s",
+                    show_name, season, episode, lang.upper(), len(servers), list(servers.keys()))
+
+    return servers
+
+
+def extract_anihosts_episode(
+    show_name: str,
+    season: int = 1,
+    episode: int = 1,
+    lang: str = "sub",
+    preferred_server: str = "Server 1",
+    direct_url: str = "",
+) -> Optional[str]:
+    """
+    Extract single AniHosts player embed URL for a show/season/episode.
+    lang: 'sub' or 'dub'
+    Returns embed URL, e.g. https://embed.animetvplus.site/home/embed/mal/1735/1
+    """
+    servers = get_available_anihosts_servers(show_name, season, episode, lang=lang, direct_url=direct_url)
+    if not servers:
+        return None
+
+    pref_lower = preferred_server.lower().strip()
+    for sname, url in servers.items():
+        s_low = sname.lower()
+        if pref_lower == s_low:
+            return url
+        if pref_lower in s_low or any(k in pref_lower for k in ("kaze", "server 1", "server1") if "kaze" in s_low or "server 1" in s_low):
+            return url
+        if any(k in pref_lower for k in ("edge", "server 2", "server2") if "edge" in s_low or "server 2" in s_low):
+            return url
+        if any(k in pref_lower for k in ("mega", "server 3", "server3", "megaplay") if "mega" in s_low or "server 3" in s_low):
+            return url
+
+    return next(iter(servers.values()))
+
+
+# ─────────────────────────────────────────────────────────────────
 #  BlisseyHusband.net Extractor (Multi-Audio / Hindi Streams)
 # ─────────────────────────────────────────────────────────────────
 

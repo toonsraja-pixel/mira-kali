@@ -2248,7 +2248,7 @@ class AutoPosterApp(ctk.CTk):
         self._ext_sat_url_var = tk.StringVar()
         ctk.CTkEntry(sat_ext_box, textvariable=self._ext_sat_url_var, font=FONT_MONO, placeholder_text="https://satoru.one/watch/...", fg_color=C_SURFACE, border_color=C_BORDER2, text_color=C_TEXT, height=34).pack(fill="x", pady=(2, 0))
 
-        # Direct URLs - Row 2 (BlisseyHusband, AnimeDekho, KotoTV)
+        # Direct URLs - Row 2 (BlisseyHusband, AnimeDekho, AniHosts / KotoTV)
         urls_row2 = ctk.CTkFrame(inner, fg_color="transparent")
         urls_row2.pack(fill="x", pady=(0, 6))
 
@@ -2266,9 +2266,9 @@ class AutoPosterApp(ctk.CTk):
 
         an_ext_box = ctk.CTkFrame(urls_row2, fg_color="transparent")
         an_ext_box.pack(side="left", fill="x", expand=True, padx=(4, 0))
-        ctk.CTkLabel(an_ext_box, text="KotoTV URL (Optional):", font=FONT_SMALL, text_color=C_MUTED).pack(anchor="w")
+        ctk.CTkLabel(an_ext_box, text="AniHosts / KotoTV URL (Optional):", font=FONT_SMALL, text_color=C_MUTED).pack(anchor="w")
         self._ext_an_url_var = tk.StringVar()
-        ctk.CTkEntry(an_ext_box, textvariable=self._ext_an_url_var, font=FONT_MONO, placeholder_text="https://kototv.to/anime/... or /watch/1", fg_color=C_SURFACE, border_color=C_BORDER2, text_color=C_TEXT, height=34).pack(fill="x", pady=(2, 0))
+        ctk.CTkEntry(an_ext_box, textvariable=self._ext_an_url_var, font=FONT_MONO, placeholder_text="https://anihosts.xyz/anime/... or https://kototv.to/anime/...", fg_color=C_SURFACE, border_color=C_BORDER2, text_color=C_TEXT, height=34).pack(fill="x", pady=(2, 0))
 
         # Direct URLs - Row 3 (DoraBash / Byse & Download / Hubcloud URL)
         urls_row3 = ctk.CTkFrame(inner, fg_color="transparent")
@@ -2286,7 +2286,7 @@ class AutoPosterApp(ctk.CTk):
         self._ext_dl_url_var = tk.StringVar()
         ctk.CTkEntry(dl_ext_box, textvariable=self._ext_dl_url_var, font=FONT_MONO, placeholder_text="https://m4ulinks.site/... or https://mdrive.lol/...", fg_color=C_SURFACE, border_color=C_BORDER2, text_color=C_TEXT, height=34).pack(fill="x", pady=(2, 0))
 
-        # --- Dedicated KotoTV Options Panel ---
+        # --- Dedicated AniHosts / KotoTV Options Panel ---
         an_panel = ctk.CTkFrame(inner, fg_color=C_SURFACE, corner_radius=10, border_width=1, border_color=C_BORDER2)
         an_panel.pack(fill="x", pady=(0, 12))
         an_panel_inner = ctk.CTkFrame(an_panel, fg_color="transparent")
@@ -2294,7 +2294,7 @@ class AutoPosterApp(ctk.CTk):
 
         an_top = ctk.CTkFrame(an_panel_inner, fg_color="transparent")
         an_top.pack(fill="x", pady=(0, 6))
-        ctk.CTkLabel(an_top, text="🎬 KotoTV.to Chooser (Server KT)", font=("Segoe UI", 12, "bold"), text_color=C_TEXT).pack(side="left")
+        ctk.CTkLabel(an_top, text="🎬 AniHosts / KotoTV Chooser (Server AH / KT)", font=("Segoe UI", 12, "bold"), text_color=C_TEXT).pack(side="left")
         ctk.CTkLabel(an_top, text="Choose language (Sub / Dub) and preferred server:", font=FONT_SMALL, text_color=C_MUTED).pack(side="left", padx=(10, 0))
 
         an_controls = ctk.CTkFrame(an_panel_inner, fg_color="transparent")
@@ -2305,10 +2305,10 @@ class AutoPosterApp(ctk.CTk):
         an_v_box.pack(side="left", padx=(0, 20))
         ctk.CTkLabel(an_v_box, text="Language:", font=FONT_SMALL, text_color=C_MUTED).pack(anchor="w", pady=(0, 2))
 
-        self._ext_an_lang_var = tk.StringVar(value=self.settings.get("kototv_language", "sub"))
+        self._ext_an_lang_var = tk.StringVar(value=self.settings.get("anihosts_language", self.settings.get("kototv_language", "sub")))
         _kt_v_map = {"SUB (Soft Sub)": "sub", "DUB": "dub", "Both SUB+DUB": "all"}
         _kt_v_rev = {v: k for k, v in _kt_v_map.items()}
-        _curr_v_disp = _kt_v_rev.get(self.settings.get("kototv_language", "sub"), "SUB (Soft Sub)")
+        _curr_v_disp = _kt_v_rev.get(self.settings.get("anihosts_language", self.settings.get("kototv_language", "sub")), "SUB (Soft Sub)")
 
         def _on_an_v_select(choice):
             self._ext_an_lang_var.set(_kt_v_map.get(choice, "sub"))
@@ -2329,10 +2329,10 @@ class AutoPosterApp(ctk.CTk):
         an_s_box.pack(side="left")
         ctk.CTkLabel(an_s_box, text="Host Server:", font=FONT_SMALL, text_color=C_MUTED).pack(anchor="w", pady=(0, 2))
 
-        self._ext_an_server_var = tk.StringVar(value=self.settings.get("kototv_preferred_server", "Server 1"))
+        self._ext_an_server_var = tk.StringVar(value=self.settings.get("anihosts_preferred_server", self.settings.get("kototv_preferred_server", "Server 1 (Kaze)")))
         an_s_menu = ctk.CTkOptionMenu(
             an_s_box,
-            values=["Server 1", "Server 2", "All Servers"],
+            values=["Server 1 (Kaze)", "Server 2 (Edge)", "Server 3 (Megaplay)", "All Servers"],
             variable=self._ext_an_server_var,
             width=180, height=34,
             fg_color=C_CARD, button_color=C_ACCENT, button_hover_color="#5a54c8",
@@ -2364,6 +2364,7 @@ class AutoPosterApp(ctk.CTk):
             ("Server UG (Toonstream)", "toonstream"),
             ("Server UG2 (Multimovies)", "multimovies"),
             ("Server MG (Satoru)", "satoru"),
+            ("Server AH (AniHosts)", "anihosts"),
             ("Server KT (KotoTV)", "kototv"),
             ("Vidmoly (AnimeDekho)", "vidmoly"),
             ("Server UG (AnimeDekho→TS)", "animedekho"),
@@ -4838,6 +4839,36 @@ class AutoPosterApp(ctk.CTk):
             except Exception:
                 pass
 
+        # Auto-detect total episodes from AniHosts / KotoTV if an_url or mode is selected and end_ep is default
+        if an_url and (end_ep == 12 or end_ep <= 1):
+            try:
+                if "anihosts" in an_url.lower():
+                    from stream_extractor import count_anihosts_episodes
+                    ah_cnt = count_anihosts_episodes(show_name, season=season, direct_url=an_url)
+                    if ah_cnt > 0:
+                        end_ep = ah_cnt
+                        if hasattr(self, "_ext_end_ep_var"):
+                            self._ext_end_ep_var.set(str(end_ep))
+                elif "kototv" in an_url.lower():
+                    from stream_extractor import count_kototv_episodes
+                    kt_cnt = count_kototv_episodes(show_name, season=season, direct_url=an_url)
+                    if kt_cnt > 0:
+                        end_ep = kt_cnt
+                        if hasattr(self, "_ext_end_ep_var"):
+                            self._ext_end_ep_var.set(str(end_ep))
+            except Exception:
+                pass
+        elif mode == "anihosts" and not an_url and (end_ep == 12 or end_ep <= 1):
+            try:
+                from stream_extractor import count_anihosts_episodes
+                ah_cnt = count_anihosts_episodes(show_name, season=season)
+                if ah_cnt > 0:
+                    end_ep = ah_cnt
+                    if hasattr(self, "_ext_end_ep_var"):
+                        self._ext_end_ep_var.set(str(end_ep))
+            except Exception:
+                pass
+
         # Auto-detect season & episode if single Byse URL/code is provided
         if db_url and (end_ep == 12 or end_ep <= 1):
             try:
@@ -4870,8 +4901,8 @@ class AutoPosterApp(ctk.CTk):
 
         dl_url = self._ext_dl_url_var.get().strip() if hasattr(self, "_ext_dl_url_var") else ""
         an_url = self._ext_an_url_var.get().strip() if hasattr(self, "_ext_an_url_var") else ""
-        an_lang = self._ext_an_lang_var.get().strip() if hasattr(self, "_ext_an_lang_var") else self.settings.get("kototv_language", "sub")
-        an_server = self._ext_an_server_var.get().strip() if hasattr(self, "_ext_an_server_var") else self.settings.get("kototv_preferred_server", "Server 1")
+        an_lang = self._ext_an_lang_var.get().strip() if hasattr(self, "_ext_an_lang_var") else self.settings.get("anihosts_language", self.settings.get("kototv_language", "sub"))
+        an_server = self._ext_an_server_var.get().strip() if hasattr(self, "_ext_an_server_var") else self.settings.get("anihosts_preferred_server", self.settings.get("kototv_preferred_server", "Server 1 (Kaze)"))
 
         threading.Thread(
             target=self._extract_links_only_worker,
@@ -4899,6 +4930,8 @@ class AutoPosterApp(ctk.CTk):
     ):
         from concurrent.futures import ThreadPoolExecutor, as_completed
         from stream_extractor import (
+            get_available_anihosts_servers,
+            extract_anihosts_episode,
             get_available_kototv_servers,
             extract_kototv_episode,
             extract_animedekho_stream,
@@ -4977,27 +5010,68 @@ class AutoPosterApp(ctk.CTk):
                     db = extract_byse_episode(
                         show_name, season=season, episode=ep, direct_url=db_url, encrypt=False
                     )
-                if mode in ("all", "both", "kototv", "anineko"):
-                    if an_lang == "all" or an_server in ("All Servers", "all"):
-                        all_kt = {}
-                        langs_to_check = ["sub", "dub"] if an_lang == "all" else [an_lang]
-                        for l_k in langs_to_check:
-                            s_dict = get_available_kototv_servers(show_name, season=season, episode=ep, lang=l_k, direct_url=an_url)
-                            if s_dict:
-                                if an_server not in ("All Servers", "all"):
-                                    s_dict = {sn: sl for sn, sl in s_dict.items() if an_server.lower() in sn.lower()}
+                is_anihosts = False
+                if mode in ("all", "both", "anihosts", "kototv", "anineko") or (mode == "all" and an_url):
+                    use_kototv = (mode in ("kototv", "anineko")) or (an_url and "kototv" in an_url.lower())
+                    if not use_kototv:
+                        is_anihosts = True
+                        if an_lang == "all" or an_server in ("All Servers", "all"):
+                            all_ah = {}
+                            langs_to_check = ["sub", "dub"] if an_lang == "all" else [an_lang]
+                            for l_k in langs_to_check:
+                                s_dict = get_available_anihosts_servers(show_name, season=season, episode=ep, lang=l_k, direct_url=an_url)
                                 if s_dict:
-                                    all_kt[l_k] = s_dict
-                        an = all_kt if all_kt else None
+                                    if an_server not in ("All Servers", "all"):
+                                        pref_clean = an_server.lower().replace("server", "").strip()
+                                        s_dict = {sn: sl for sn, sl in s_dict.items() if pref_clean in sn.lower()}
+                                    if s_dict:
+                                        all_ah[l_k] = s_dict
+                            an = all_ah if all_ah else None
+                        else:
+                            an = extract_anihosts_episode(
+                                show_name, season=season, episode=ep, lang=an_lang, preferred_server=an_server, direct_url=an_url
+                            )
+                        # Fallback to KotoTV if AniHosts returned nothing and no direct AniHosts URL was specified
+                        if not an and mode in ("all", "both") and not an_url:
+                            if an_lang == "all" or an_server in ("All Servers", "all"):
+                                all_kt = {}
+                                langs_to_check = ["sub", "dub"] if an_lang == "all" else [an_lang]
+                                for l_k in langs_to_check:
+                                    s_dict = get_available_kototv_servers(show_name, season=season, episode=ep, lang=l_k, direct_url=an_url)
+                                    if s_dict:
+                                        all_kt[l_k] = s_dict
+                                if all_kt:
+                                    an = all_kt
+                                    is_anihosts = False
+                            else:
+                                kt_res = extract_kototv_episode(
+                                    show_name, season=season, episode=ep, lang=an_lang, preferred_server=an_server, direct_url=an_url
+                                )
+                                if kt_res:
+                                    an = kt_res
+                                    is_anihosts = False
                     else:
-                        an = extract_kototv_episode(
-                            show_name, season=season, episode=ep, lang=an_lang, preferred_server=an_server, direct_url=an_url
-                        )
+                        is_anihosts = False
+                        if an_lang == "all" or an_server in ("All Servers", "all"):
+                            all_kt = {}
+                            langs_to_check = ["sub", "dub"] if an_lang == "all" else [an_lang]
+                            for l_k in langs_to_check:
+                                s_dict = get_available_kototv_servers(show_name, season=season, episode=ep, lang=l_k, direct_url=an_url)
+                                if s_dict:
+                                    if an_server not in ("All Servers", "all"):
+                                        s_dict = {sn: sl for sn, sl in s_dict.items() if an_server.lower() in sn.lower()}
+                                    if s_dict:
+                                        all_kt[l_k] = s_dict
+                            an = all_kt if all_kt else None
+                        else:
+                            an = extract_kototv_episode(
+                                show_name, season=season, episode=ep, lang=an_lang, preferred_server=an_server, direct_url=an_url
+                            )
 
                 for q, links in downloads_map.items():
                     if ep - 1 < len(links):
                         ep_dls[q] = links[ep - 1]
-                return ep, ruby, multi, mg, pg, an, ep_dls, vidmoly, bh, db
+                return ep, ruby, multi, mg, pg, an, ep_dls, vidmoly, bh, db, is_anihosts
 
             results = {}
             done_count = 0
@@ -5009,8 +5083,8 @@ class AutoPosterApp(ctk.CTk):
                 futures = [executor.submit(_worker_task, ep) for ep in ep_nums]
                 for fut in as_completed(futures):
                     try:
-                        ep, ruby, multi, mg, pg, an, ep_dls, vidmoly, bh, db = fut.result()
-                        results[ep] = (ruby, multi, mg, pg, an, ep_dls, vidmoly, bh, db)
+                        ep, ruby, multi, mg, pg, an, ep_dls, vidmoly, bh, db, is_ah = fut.result()
+                        results[ep] = (ruby, multi, mg, pg, an, ep_dls, vidmoly, bh, db, is_ah)
                         done_count += 1
                         found = bool(ruby or multi or mg or pg or an or vidmoly or bh or db)
                         status = "✅" if found else "⚠️"
@@ -5026,7 +5100,7 @@ class AutoPosterApp(ctk.CTk):
             output_lines = []
             found_count = 0
             for ep in sorted(results.keys()):
-                ruby, multi, mg, pg, an, ep_dls, vidmoly, bh, db = results[ep]
+                ruby, multi, mg, pg, an, ep_dls, vidmoly, bh, db, is_ah = results[ep]
                 label = f"S{season}E{ep}"
 
                 if mode == "vidmoly":
@@ -5068,6 +5142,17 @@ class AutoPosterApp(ctk.CTk):
                         found_count += 1
                     else:
                         output_lines.append(f"{label}: ❌ Not found")
+                elif mode == "anihosts":
+                    if isinstance(an, dict):
+                        for l_key, s_dict in an.items():
+                            for s_name, s_link in s_dict.items():
+                                found_count += 1
+                                output_lines.append(f"{label} [AH {l_key.upper()} - {s_name}]: {s_link}")
+                    elif an:
+                        found_count += 1
+                        output_lines.append(f"{label} [AH {an_lang.upper()} - {an_server}]: {an}")
+                    else:
+                        output_lines.append(f"{label}: ❌ Not found")
                 elif mode in ("kototv", "anineko"):
                     if isinstance(an, dict):
                         for l_key, s_dict in an.items():
@@ -5103,15 +5188,17 @@ class AutoPosterApp(ctk.CTk):
                         output_lines.append(f"{label} [Server DB (Byse)]: {db}")
                     
                     if isinstance(an, dict):
+                        tag_name = "Server AH" if is_ah else "Server KT"
                         for l_key, s_dict in an.items():
                             for s_name, s_link in s_dict.items():
                                 found_count += 1
-                                output_lines.append(f"{label} [Server KT {l_key.upper()} - {s_name}]: {s_link}")
+                                output_lines.append(f"{label} [{tag_name} {l_key.upper()} - {s_name}]: {s_link}")
                     elif an:
+                        tag_name = "Server AH" if is_ah else "Server KT"
                         found_count += 1
-                        output_lines.append(f"{label} [Server KT ({an_lang.upper()}/{an_server})]: {an}")
+                        output_lines.append(f"{label} [{tag_name} ({an_lang.upper()}/{an_server})]: {an}")
                     else:
-                        output_lines.append(f"{label} [Server KT]: ❌ Not found")
+                        output_lines.append(f"{label} [Server AH]: ❌ Not found")
 
                 # Append download links if any
                 for q, dl_link in ep_dls.items():
