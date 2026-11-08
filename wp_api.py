@@ -1289,6 +1289,19 @@ def _normalize_title_for_matching(title_str: str) -> tuple[str, int, bool]:
     # Strip generic descriptor suffixes like "Anime Series", "Web Series" that BollyFlix appends
     title = re.sub(r"\b(?:anime|web|tv|mini|limited)\s+series\b.*$", "", title, flags=re.IGNORECASE)
 
+    # Strip language/audio suffixes that appear WITHOUT brackets, e.g. "Eng Dub", "Hindi Dub",
+    # "English Dubbed", "Multi Audio", "Dual Audio", "Hindi", "Tamil", etc.
+    # These are stripped AFTER bracket-content removal so bracketed forms are already gone.
+    # Pattern: language word (optionally followed by dub/sub/audio qualifier)
+    _LANG_WORDS = r"(?:eng(?:lish)?|hindi|tamil|telugu|malayalam|kannada|bengali|marathi|punjabi|japanese|korean|chinese)"
+    _DUB_WORDS  = r"(?:dub(?:bed)?|sub(?:bed|titled)?|audio)"
+    # "Eng Dub", "Hindi Dubbed", "Tamil Audio", "English Subbed"
+    title = re.sub(rf"\b{_LANG_WORDS}\s+{_DUB_WORDS}\b", "", title, flags=re.IGNORECASE)
+    # Bare standalone language word at end of string (e.g., " Tamil", " Hindi")
+    title = re.sub(rf"\s+{_LANG_WORDS}\s*$", "", title, flags=re.IGNORECASE)
+    # Bare dub/sub at end
+    title = re.sub(r"\s+(?:dub(?:bed)?|dubbed|subbed|sub)\s*$", "", title, flags=re.IGNORECASE)
+
     # Clean up non-alphanumeric noise at edges
     title = re.sub(r"^[^\w]+|[^\w]+$", "", title).strip()
     title = re.sub(r"\s{2,}", " ", title)
