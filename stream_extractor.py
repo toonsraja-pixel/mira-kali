@@ -12,8 +12,24 @@ import logging
 import threading
 import requests
 from bs4 import BeautifulSoup
-from urllib.parse import urlparse
+from urllib.parse import urlparse, quote as _url_quote
 from typing import Optional, List, Dict, Tuple
+
+
+def _encode_url_path(url: str) -> str:
+    """
+    Percent-encode special characters (apostrophes, spaces, curly quotes, etc.)
+    in the PATH portion of a URL, while leaving the scheme, host, and query intact.
+    This fixes episode URLs like .../jojo's-bizarre-adventure-4x25/ where the
+    apostrophe is literal and some servers reject un-encoded requests.
+    """
+    try:
+        parsed = urlparse(url)
+        safe_chars = "/-._~!$&()*+,;=:@%"  # chars legal in a URL path, don't re-encode %
+        encoded_path = _url_quote(parsed.path, safe=safe_chars)
+        return parsed._replace(path=encoded_path).geturl()
+    except Exception:
+        return url
 
 logger = logging.getLogger(__name__)
 
@@ -678,6 +694,15 @@ def _is_title_match(target_title: str, candidate_title: str, min_score: int = 65
     if ratio >= min_score:
         return True
 
+    # Subtitle prefix check (e.g. 'Show Name, Subtitle...' or 'Show Name: Subtitle')
+    for delim in (':', ' - ', ' – ', ' — ', ','):
+        if delim in target_title:
+            prefix = target_title.split(delim)[0].strip()
+            clean_pref = _clean_str(prefix)
+            if clean_pref and len(clean_pref.split()) >= 2:
+                if fuzz.token_sort_ratio(clean_pref, clean_cand) >= min_score:
+                    return True
+
     tgt_words = [w for w in clean_tgt.split() if len(w) > 3 and w not in ("season", "episode", "part")]
     if tgt_words:
         matched = [w for w in tgt_words if w in clean_cand]
@@ -690,6 +715,50 @@ def _is_title_match(target_title: str, candidate_title: str, min_score: int = 65
 # ─────────────────────────────────────────────────────────────────
 #  Toonstream Ruby extractor
 # ─────────────────────────────────────────────────────────────────
+
+_toonstream_session: Optional[requests.Session] = None
+
+def _get_toonstream_session() -> requests.Session:
+    global _toonstream_session
+    if _toonstream_session is None:
+        _toonstream_session = requests.Session()
+        _toonstream_session.headers.update(HEADERS)
+    return _toonstream_session
+
+def _toonstream_get(url: str, **kwargs) -> requests.Response:
+    """
+    Execute a GET request against Toonstream, automatically handling the
+    '24-Hour Access Redirect System' (/access?returnTo=...) gate.
+    If redirected to /access, automatically unlocks 24-hour access via
+    /api/access/ads/verify and re-requests the target page with active cookies.
+    """
+    s = _get_toonstream_session()
+    if "timeout" not in kwargs:
+        kwargs["timeout"] = 10
+    if "headers" not in kwargs:
+        kwargs["headers"] = HEADERS
+
+    safe_url = _encode_url_path(url)
+    resp = s.get(safe_url, **kwargs)
+
+    # Check if redirected to the 24-Hour access gate
+    if "/access" in resp.url or "24-Hour Access Redirect" in resp.text:
+        domain = urlparse(resp.url).netloc or "toonstream.us"
+        parsed = urlparse(resp.url)
+        from urllib.parse import parse_qs
+        qs = parse_qs(parsed.query)
+        return_to = qs.get("returnTo", ["/"])[0]
+
+        logger.info("[Toonstream Access Gate] Unlocking 24-hr access for domain %s (returnTo: %s)...", domain, return_to)
+        verify_url = f"https://{domain}/api/access/ads/verify"
+        try:
+            s.post(verify_url, json={"returnTo": return_to}, timeout=10)
+        except Exception as v_err:
+            logger.warning("[Toonstream Access Gate] Verify error: %s", v_err)
+
+        resp = s.get(safe_url, **kwargs)
+
+    return resp
 
 _toonstream_search_cache: dict[str, List[str]] = {}
 
@@ -753,7 +822,7 @@ def _toonstream_search_series_urls(show_name: str) -> List[str]:
         for q in queries:
             try:
                 _api = f"https://{domain}/search/all?q={_url_quote(q)}"
-                _r = requests.get(_api, headers=HEADERS, timeout=8)
+                _r = _toonstream_get(_api, timeout=8)
                 if _r.status_code != 200:
                     continue
                 _j = _r.json()
@@ -1744,7 +1813,7 @@ def count_toonstream_episodes(show_name: str, season: int = 1) -> int:
     # Direct requests (FlareSolverr disabled — sites no longer need CF bypass)
     for show_url in candidate_urls:
         try:
-            r = requests.get(show_url, headers=HEADERS, timeout=6)
+            r = _toonstream_get(show_url, timeout=6)
             if r.status_code == 200:
                 cnt = _count_from_html(r.text, show_url)
                 if cnt > 0:
@@ -1817,7 +1886,7 @@ def _get_or_fetch_toonstream_episode_map(show_name: str, season: int) -> dict[in
         season_url = base_url.rstrip("/") + f"/season/{season}"
         for s_url in [season_url, base_url]:
             try:
-                sr = requests.get(s_url, headers=HEADERS, timeout=10)
+                sr = _toonstream_get(s_url, timeout=10)
                 if sr.status_code != 200:
                     continue
                 _scrape_ep_links(sr.text, domain)
@@ -1828,7 +1897,7 @@ def _get_or_fetch_toonstream_episode_map(show_name: str, season: int) -> dict[in
                         sep = "&" if "?" in s_url else "?"
                         page_url = f"{s_url.rstrip('/')}{sep}page={page_num}"
                         try:
-                            pg_r = requests.get(page_url, headers=HEADERS, timeout=10)
+                            pg_r = _toonstream_get(page_url, timeout=10)
                             if pg_r.status_code != 200:
                                 break
                             if not _scrape_ep_links(pg_r.text, domain):
@@ -2125,7 +2194,7 @@ def extract_ruby_url_from_toonstream(show_name: str, season: int = 1, episode: i
         elif "/series/" in direct_url or "/season/" in direct_url or "/anime/" in direct_url:
             # User passed a series/season URL — extract target episode link from series page
             try:
-                sr = requests.get(direct_url, headers=HEADERS, timeout=5)
+                sr = _toonstream_get(direct_url, timeout=5)
                 if sr.status_code == 200:
                     sr_soup = BeautifulSoup(sr.text, "html.parser")
                     ep_pat = re.compile(rf"-{season}x{episode}(?:[^0-9]|$)", re.IGNORECASE)
@@ -2150,7 +2219,7 @@ def extract_ruby_url_from_toonstream(show_name: str, season: int = 1, episode: i
         cached_series_url = _toonstream_series_cache.get(cache_key)
         if cached_series_url:
             try:
-                sr = requests.get(cached_series_url, headers=HEADERS, timeout=4)
+                sr = _toonstream_get(cached_series_url, timeout=4)
                 if sr.status_code == 200:
                     sr_soup = BeautifulSoup(sr.text, "html.parser")
                     for a in sr_soup.find_all("a", href=True):
@@ -2170,7 +2239,7 @@ def extract_ruby_url_from_toonstream(show_name: str, season: int = 1, episode: i
                 _d = urlparse(_base_url).netloc
                 for _s_url in [f"{_base_url.rstrip('/')}/season/{season}", _base_url]:
                     try:
-                        _sr = requests.get(_s_url, headers=HEADERS, timeout=4)
+                        _sr = _toonstream_get(_s_url, timeout=4)
                         if _sr.status_code != 200:
                             continue
                         _sr_soup = BeautifulSoup(_sr.text, "html.parser")
@@ -2205,7 +2274,7 @@ def extract_ruby_url_from_toonstream(show_name: str, season: int = 1, episode: i
                     ]:
                         s_url = f"https://{domain}{series_path}"
                         try:
-                            sr = requests.get(s_url, headers=HEADERS, timeout=4)
+                            sr = _toonstream_get(s_url, timeout=4)
                             if sr.status_code != 200:
                                 continue
                             sr_soup = BeautifulSoup(sr.text, "html.parser")
@@ -2253,7 +2322,7 @@ def extract_ruby_url_from_toonstream(show_name: str, season: int = 1, episode: i
         # Derive domain from URL for dead-domain tracking
         _ep_domain = ep_url.split("/")[2] if ep_url.startswith("https://") else ""
         try:
-            resp = requests.get(ep_url, headers=HEADERS, timeout=10)
+            resp = _toonstream_get(ep_url, timeout=10)
             if resp.status_code != 200:
                 continue
 
@@ -2321,7 +2390,7 @@ def extract_toonstream_all_servers(
                 candidate_urls.append(direct_url)
         elif "/series/" in direct_url or "/season/" in direct_url or "/anime/" in direct_url:
             try:
-                sr = requests.get(direct_url, headers=HEADERS, timeout=5)
+                sr = _toonstream_get(direct_url, timeout=5)
                 if sr.status_code == 200:
                     sr_soup = BeautifulSoup(sr.text, "html.parser")
                     ep_pat = re.compile(rf"-{season}x{episode}(?:[^0-9]|$)", re.IGNORECASE)
@@ -2341,14 +2410,14 @@ def extract_toonstream_all_servers(
         # 1. Use pre-built episode map if available (direct hit, zero guessing)
         ep_map = _get_or_fetch_toonstream_episode_map(show_name, season)
         if ep_map and episode in ep_map:
-            candidate_urls.insert(0, ep_map[episode])
+            candidate_urls.insert(0, _encode_url_path(ep_map[episode]))
 
         ep_pattern = re.compile(rf"-{season}x{episode}(?:[^0-9]|$)", re.IGNORECASE)
         cache_key = (show_name.lower(), season)
         cached_series_url = _toonstream_series_cache.get(cache_key)
         if cached_series_url:
             try:
-                sr = requests.get(cached_series_url, headers=HEADERS, timeout=4)
+                sr = _toonstream_get(cached_series_url, timeout=4)
                 if sr.status_code == 200:
                     sr_soup = BeautifulSoup(sr.text, "html.parser")
                     for a in sr_soup.find_all("a", href=True):
@@ -2367,7 +2436,7 @@ def extract_toonstream_all_servers(
                 _d = urlparse(_base_url).netloc
                 for _s_url in [f"{_base_url.rstrip('/')}/season/{season}", _base_url]:
                     try:
-                        _sr = requests.get(_s_url, headers=HEADERS, timeout=4)
+                        _sr = _toonstream_get(_s_url, timeout=4)
                         if _sr.status_code != 200:
                             continue
                         _sr_soup = BeautifulSoup(_sr.text, "html.parser")
@@ -2401,7 +2470,7 @@ def extract_toonstream_all_servers(
                     ]:
                         s_url = f"https://{domain}{series_path}"
                         try:
-                            sr = requests.get(s_url, headers=HEADERS, timeout=4)
+                            sr = _toonstream_get(s_url, timeout=4)
                             if sr.status_code != 200:
                                 continue
                             sr_soup = BeautifulSoup(sr.text, "html.parser")
@@ -2462,7 +2531,7 @@ def extract_toonstream_all_servers(
     def _try_ep_url(ep_url: str):
         """Fetch one candidate episode URL and resolve its iframes. Returns (ug_url, mg_url, pg_url) or (None, None, None)."""
         try:
-            resp = requests.get(ep_url, headers=HEADERS, timeout=10)
+            resp = _toonstream_get(ep_url, timeout=10)
             if resp.status_code != 200:
                 return (None, None, None)
 
