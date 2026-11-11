@@ -366,7 +366,7 @@ async function handleRequest(request) {
   }
 
   // ── 4. LANDING PAGE ──────────────────────────────────────────────────────────
-  return new Response(ORIGINAL_PLAYER_HTML, {
+  return new Response(buildLandingPageHtml(url), {
     status: 200,
     headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "public, max-age=0, must-revalidate" }
   });
@@ -1626,13 +1626,66 @@ function buildHlsPlayerHtml(m3u8Url, title, posterUrl) {
 </html>`;
 }
 
-// ── ORIGINAL WORKER LANDING PAGE HTML ────────────────────────────────────────
-const ORIGINAL_PLAYER_HTML = `<!doctype html>
+// ─────────────────────────────────────────────────────────────────────────────
+// Landing Page Builder & HTML
+// ─────────────────────────────────────────────────────────────────────────────
+function escapeHtml(str) {
+  if (!str) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function buildLandingPageHtml(url) {
+  let title = "Video Player";
+  let videoUrl = "";
+  let delaySec = 30;
+
+  if (url) {
+    const encodedData = url.searchParams.get("data");
+    if (encodedData) {
+      try {
+        const raw = atob(encodedData.replace(/-/g, "+").replace(/_/g, "/"));
+        const d = JSON.parse(raw);
+        if (d.t) title = d.t.replace(/_/g, " ");
+        if (d.u) videoUrl = d.u;
+        if (d.d) delaySec = parseInt(d.d, 10) || 30;
+      } catch (e) {}
+    }
+    if (!videoUrl) {
+      if (url.searchParams.has("url")) videoUrl = url.searchParams.get("url");
+      else if (url.searchParams.has("u")) videoUrl = url.searchParams.get("u");
+    }
+    if (title === "Video Player" && url.searchParams.has("t")) {
+      title = url.searchParams.get("t").replace(/_/g, " ");
+    }
+    if (url.searchParams.has("d")) {
+      delaySec = parseInt(url.searchParams.get("d"), 10) || delaySec;
+    }
+  }
+
+  // If videoUrl is a Videas embed, route to /videas/:uuid for autoplay
+  let iframeSrc = videoUrl;
+  if (videoUrl) {
+    const vMatch = videoUrl.match(/videas\.fr\/embed\/([0-9a-fA-F-]{36})/i);
+    if (vMatch) {
+      iframeSrc = "/videas/" + vMatch[1];
+    }
+  }
+
+  const safeTitle = escapeHtml(title);
+  const safeIframeSrc = escapeHtml(iframeSrc);
+  const safeVideoUrl = escapeHtml(videoUrl);
+
+  return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>Video Player</title>
+<title>${safeTitle}</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 html,body{width:100%;height:100%;overflow:hidden;background-color:#050505;font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;}
@@ -1642,16 +1695,7 @@ html,body{width:100%;height:100%;overflow:hidden;background-color:#050505;font-f
 @keyframes dotMove{from{transform:translateY(0)}to{transform:translateY(300px)}}
 .app-header{position:relative;z-index:10;height:50px;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.6);backdrop-filter:blur(12px);border-bottom:1px solid rgba(255,255,255,.1);color:#fff;font-weight:600;}
 .app-content{position:relative;z-index:5;width:100%;height:calc(100% - 50px);}
-
-/* iframe placeholder style */
-.detect-iframe{
-  position:absolute;
-  width:0;
-  height:0;
-  border:0;
-  z-index:1;
-}
-
+.detect-iframe{position:absolute;width:0;height:0;border:0;z-index:1;}
 .overlay{position:absolute;inset:0;z-index:6;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:20px;}
 .ripple-container{position:relative;width:80px;height:80px;margin:0 auto 30px;}
 .ripple-container div{position:absolute;border:4px solid #fff;border-radius:50%;animation:ripple 1.2s cubic-bezier(0,0.2,0.8,1) infinite;}
@@ -1666,41 +1710,78 @@ html,body{width:100%;height:100%;overflow:hidden;background-color:#050505;font-f
 <body>
 <div class="bg-gradient"></div>
 <div class="bg-dots"></div>
-<div class="app-header" id="headerTitle">Loading...</div>
+<div class="app-header" id="headerTitle">${safeTitle}</div>
 <div class="app-content">
-<script>
-(function(){
-  const params=new URLSearchParams(location.search);
-  const encodedData=params.get('data');
-  let title='Video Player',url='',delayTime=30000;
-  if(encodedData){try{const d=JSON.parse(atob(encodedData));title=d.t.replace(/_/g,' ');url=d.u;delayTime=parseInt(d.d,10)*1000;}catch(e){}}
-  document.title=title;
-  setTimeout(()=>{const h=document.getElementById('headerTitle');if(h)h.innerText=title;},0);
-  if(url){
-    var vm=url.match(/videas\.fr\/embed\/([0-9a-fA-F-]{36})/i);
-    var src=vm?('/videas/'+vm[1]):url;
-    document.write('<iframe class="detect-iframe" src="'+src+'" allow="autoplay; fullscreen; picture-in-picture"></iframe>');
-  }
-  window.__delayTime=delayTime;
-})();
-<\/script>
-<div class="overlay" id="overlay">
-  <div id="loadingUI">
-    <div class="ripple-container"><div></div><div></div></div>
-    <div class="loading-title">Loading Video...</div>
-    <p style="color:rgba(255,255,255,.6);font-size:14px">Please wait while we connect</p>
-  </div>
-  <div id="messageUI" class="hidden">
-    <div class="error-msg-box">
-      <span style="font-size:50px">⚠️</span>
-      <div style="color:#ff6b6b;font-size:20px;font-weight:bold">Video Not Loading?</div>
-      <div style="margin-top:10px;font-size:15px">If the current video is not loading,<br>please try another server.</div>
+  <!-- Hidden input for apps scanning input values -->
+  <input type="hidden" id="app_detected_url" value="${safeVideoUrl}">
+  <!-- Iframe for apps scanning iframes -->
+  <iframe id="videoFrame" class="detect-iframe" src="${safeIframeSrc}" allow="autoplay; fullscreen; picture-in-picture"></iframe>
+
+  <div class="overlay" id="overlay">
+    <div id="loadingUI">
+      <div class="ripple-container"><div></div><div></div></div>
+      <div class="loading-title">Loading Video...</div>
+      <p style="color:rgba(255,255,255,.6);font-size:14px">Please wait while we connect</p>
+    </div>
+    <div id="messageUI" class="hidden">
+      <div class="error-msg-box">
+        <span style="font-size:50px">⚠️</span>
+        <div style="color:#ff6b6b;font-size:20px;font-weight:bold">Video Not Loading?</div>
+        <div style="margin-top:10px;font-size:15px">If the current video is not loading,<br>please try another server.</div>
+      </div>
     </div>
   </div>
 </div>
-</div>
 <script>
-setTimeout(()=>{const l=document.getElementById('loadingUI');const m=document.getElementById('messageUI');if(l)l.remove();if(m)m.classList.remove('hidden');},window.__delayTime||30000);
+(function(){
+  try {
+    const params = new URLSearchParams(location.search);
+    const encodedData = params.get('data');
+    let title = params.get('t') || '';
+    let url = params.get('url') || params.get('u') || '';
+    let delaySec = parseInt(params.get('d') || '0', 10);
+
+    if (encodedData) {
+      try {
+        const raw = atob(encodedData.replace(/-/g, '+').replace(/_/g, '/'));
+        const d = JSON.parse(raw);
+        if (d.t) title = d.t.replace(/_/g, ' ');
+        if (d.u) url = d.u;
+        if (d.d) delaySec = parseInt(d.d, 10) || 30;
+      } catch (e) {}
+    }
+
+    if (title) {
+      document.title = title;
+      const h = document.getElementById('headerTitle');
+      if (h) h.innerText = title;
+    }
+
+    if (url) {
+      const vMatch = url.match(/videas\\.fr\\/embed\\/([0-9a-fA-F-]{36})/i);
+      const effectiveSrc = vMatch ? ('/videas/' + vMatch[1]) : url;
+      const f = document.getElementById('videoFrame');
+      if (f && (!f.src || f.src === 'about:blank' || !f.getAttribute('src'))) {
+        f.src = effectiveSrc;
+      }
+      const inp = document.getElementById('app_detected_url');
+      if (inp) inp.value = url;
+    }
+
+    const delayTime = (delaySec > 0 ? delaySec : ${delaySec}) * 1000;
+    setTimeout(() => {
+      const l = document.getElementById('loadingUI');
+      const m = document.getElementById('messageUI');
+      if (l) l.remove();
+      if (m) m.classList.remove('hidden');
+    }, delayTime);
+  } catch (err) {
+    console.error(err);
+  }
+})();
 <\/script>
 </body>
 </html>`;
+}
+
+const ORIGINAL_PLAYER_HTML = buildLandingPageHtml(null);
