@@ -730,22 +730,31 @@ def check_and_update_airing_posts(
             _fetch_mg  = "mg" in _need_set or "both" == need
 
             if _fetch_ug:
-                logger.info("Extracting Server UG / PG for %s S%dE%02d…", show_name, season, ep_num)
-                ruby_url, _, pg_url = extract_toonstream_all_servers(show_name, season=season, episode=ep_num)
+                try:
+                    logger.info("Extracting Server UG / PG for %s S%dE%02d…", show_name, season, ep_num)
+                    ruby_url, _, pg_url = extract_toonstream_all_servers(show_name, season=season, episode=ep_num)
+                except Exception as _e_ug:
+                    logger.warning("Error extracting Server UG / PG for %s S%dE%02d: %s", show_name, season, ep_num, _e_ug)
 
             # NOTE: "multi" also fetches pg_url as a fallback — if Multimovies returns None for this
             # show/episode, pg_url from Toonstream acts as the secondary server so has_changes fires.
             if _fetch_mm:
-                logger.info("Extracting Server UG2 for %s S%dE%02d…", show_name, season, ep_num)
-                multi_url = resolve_multimovies_episode(show_name, season=season, episode=ep_num)
-                if not multi_url and not pg_url:
-                    # Multimovies had nothing — try Toonstream pg_url as a secondary-server fallback
-                    logger.info("Multimovies empty for %s S%dE%02d — trying Toonstream PG fallback…", show_name, season, ep_num)
-                    _, _, pg_url = extract_toonstream_all_servers(show_name, season=season, episode=ep_num)
+                try:
+                    logger.info("Extracting Server UG2 for %s S%dE%02d…", show_name, season, ep_num)
+                    multi_url = resolve_multimovies_episode(show_name, season=season, episode=ep_num)
+                    if not multi_url and not pg_url:
+                        # Multimovies had nothing — try Toonstream pg_url as a secondary-server fallback
+                        logger.info("Multimovies empty for %s S%dE%02d — trying Toonstream PG fallback…", show_name, season, ep_num)
+                        _, _, pg_url = extract_toonstream_all_servers(show_name, season=season, episode=ep_num)
+                except Exception as _e_mm:
+                    logger.warning("Error extracting Server UG2 for %s S%dE%02d: %s", show_name, season, ep_num, _e_mm)
 
             if _fetch_mg:
-                logger.info("Extracting Server MG (satoru.one) for %s S%dE%02d…", show_name, season, ep_num)
-                mg_url = resolve_satoru_episode(show_name, season=season, episode=ep_num)
+                try:
+                    logger.info("Extracting Server MG (satoru.one) for %s S%dE%02d…", show_name, season, ep_num)
+                    mg_url = resolve_satoru_episode(show_name, season=season, episode=ep_num)
+                except Exception as _e_mg:
+                    logger.warning("Error extracting Server MG for %s S%dE%02d: %s", show_name, season, ep_num, _e_mg)
 
             return ep_num, {"ruby_url": ruby_url, "multi_url": multi_url, "mg_url": mg_url, "pg_url": pg_url}
 

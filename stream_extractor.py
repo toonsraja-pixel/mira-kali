@@ -723,6 +723,13 @@ def _get_toonstream_session() -> requests.Session:
     if _toonstream_session is None:
         _toonstream_session = requests.Session()
         _toonstream_session.headers.update(HEADERS)
+        try:
+            from requests.adapters import HTTPAdapter
+            adapter = HTTPAdapter(pool_connections=35, pool_maxsize=35)
+            _toonstream_session.mount("https://", adapter)
+            _toonstream_session.mount("http://", adapter)
+        except Exception:
+            pass
     return _toonstream_session
 
 def _toonstream_get(url: str, **kwargs) -> requests.Response:
@@ -2608,7 +2615,11 @@ def _satoru_get_session():
     """
     global _SATORU_SESSION, _SATORU_SESSION_EXPIRY
     import time
-    from curl_cffi import requests
+    try:
+        from curl_cffi import requests
+    except ImportError:
+        logger.debug("Satoru.one: curl_cffi not installed, falling back to standard requests.")
+        return None
 
     now = time.time()
     if _SATORU_SESSION is not None and now < _SATORU_SESSION_EXPIRY:
